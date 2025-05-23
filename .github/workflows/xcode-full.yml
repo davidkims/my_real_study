@@ -1,4 +1,4 @@
-name: Xcode Full Build and Optional Upload
+name: Xcode Full Build and Optional S3 Upload
 
 on:
   push:
@@ -17,7 +17,7 @@ jobs:
       - name: ✅ Checkout Code
         uses: actions/checkout@v4
 
-      - name: 🔒 Prepare Secure Directories
+      - name: 🔒 Prepare Directories
         run: |
           mkdir -p build_output logs tmp config ruby_env json_output artifacts
           chmod 700 build_output logs tmp config ruby_env json_output artifacts
@@ -87,13 +87,13 @@ jobs:
 
           exit ${PIPESTATUS[0]}
 
-      - name: 📦 Export and Zip Artifacts (Optional)
+      - name: 📦 Export and Zip Artifacts (if APPLE_TEAM_ID exists)
         run: |
           cd "$PROJECT_DIR"
           scheme=$(cat default_scheme.txt)
 
-          if [ -z "${{ secrets.APPLE_TEAM_ID }}" ]; then
-            echo "⚠️ APPLE_TEAM_ID not set. Skipping exportArchive step."
+          if [ -z "${APPLE_TEAM_ID}" ]; then
+            echo "⚠️ APPLE_TEAM_ID not set. Skipping export."
             exit 0
           fi
 
@@ -109,7 +109,7 @@ jobs:
           echo '  <key>stripSwiftSymbols</key>' >> ExportOptions.plist
           echo '  <true/>' >> ExportOptions.plist
           echo '  <key>teamID</key>' >> ExportOptions.plist
-          echo "  <string>${{ secrets.APPLE_TEAM_ID }}</string>" >> ExportOptions.plist
+          echo "  <string>${APPLE_TEAM_ID}</string>" >> ExportOptions.plist
           echo '</dict>' >> ExportOptions.plist
           echo '</plist>' >> ExportOptions.plist
 
@@ -127,21 +127,27 @@ jobs:
           zip -r artifacts/App.ipa.zip build_output/*.ipa || true
           zip -r artifacts/App.app.zip build_output/*.app || true
           zip -r artifacts/App.dSYM.zip build_output/*.dSYM || true
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: ☁️ Upload to AWS S3 (Optional)
-        if: ${{ secrets.AWS_ACCESS_KEY_ID != '' && secrets.AWS_SECRET_ACCESS_KEY != '' && secrets.S3_BUCKET_NAME != '' }}
-        uses: jakejarvis/s3-sync-action@master
-        with:
-          args: --acl private --follow-symlinks
+        run: |
+          if [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECRET_ACCESS_KEY" ] && [ -n "$S3_BUCKET_NAME" ]; then
+            echo "✅ Uploading to S3..."
+            aws s3 cp artifacts/App.ipa.zip "s3://${S3_BUCKET_NAME}/${S3_KEY_PREFIX}/App.ipa.zip" || true
+            aws s3 cp artifacts/App.app.zip "s3://${S3_BUCKET_NAME}/${S3_KEY_PREFIX}/App.app.zip" || true
+            aws s3 cp artifacts/App.dSYM.zip "s3://${S3_BUCKET_NAME}/${S3_KEY_PREFIX}/App.dSYM.zip" || true
+          else
+            echo "⚠️ AWS secrets not fully set. Skipping S3 upload."
+          fi
         env:
-          AWS_S3_BUCKET: ${{ secrets.S3_BUCKET_NAME }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
-          SOURCE_DIR: ${{ github.workspace }}/$PROJECT_DIR/artifacts
-          DEST_DIR: ${{ env.S3_KEY_PREFIX }}
+          S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
+          S3_KEY_PREFIX: ${{ env.S3_KEY_PREFIX }}
 
-      - name: 📤 Upload Logs and Build Artifacts
+      - name: 📤 Upload Logs and Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
