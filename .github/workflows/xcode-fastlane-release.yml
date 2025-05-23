@@ -1,10 +1,12 @@
-name: Xcode Fastlane Build & TestFlight
+name: iOS Fastlane Build with Release Notes
 
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+
+permissions:
+  contents: write
+  packages: write
 
 jobs:
   ios-build:
@@ -19,16 +21,27 @@ jobs:
       - name: ✅ Checkout Code
         uses: actions/checkout@v4
 
+      - name: 📂 Debug File Structure
+        run: |
+          echo "📍 Current path: $(pwd)"
+          echo "🔍 Contents:"
+          ls -al
+          echo "--- ./ios ---"
+          ls -al ios || echo "❌ no ./ios"
+          echo "--- ./MyApp ---"
+          ls -al MyApp || echo "❌ no ./MyApp"
+
       - name: 🔍 Detect Xcode Project Directory
         run: |
           set -e
           for dir in . ./ios ./MyApp ./source; do
             if ls "$dir"/*.xcodeproj >/dev/null 2>&1 || ls "$dir"/*.xcworkspace >/dev/null 2>&1; then
+              echo "✅ Found Xcode project in: $dir"
               echo "PROJECT_DIR=$dir" >> $GITHUB_ENV
               exit 0
             fi
           done
-          echo "❌ No Xcode project found"
+          echo "❌ No .xcodeproj or .xcworkspace found"
           exit 1
 
       - name: 🔒 Prepare Directories
@@ -38,65 +51,65 @@ jobs:
 
       - name: 💎 Install Ruby and Fastlane
         run: |
-          brew install rbenv ruby-build
+          brew install rbenv ruby-build gh
           eval "$(rbenv init - bash)"
           rbenv install -s 3.2.2
           rbenv global 3.2.2
           gem install bundler fastlane
 
-      - name: 📝 Auto-generate Fastlane Fastfile
+      - name: 📝 Auto-generate Fastfile with version bump
         run: |
           mkdir -p "$PROJECT_DIR/fastlane"
           echo "default_platform(:ios)" > "$PROJECT_DIR/fastlane/Fastfile"
-          echo "" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "platform :ios do" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "  desc \"Build the app\"" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "  lane :build_app do" >> "$PROJECT_DIR/fastlane/Fastfile"
+          echo "    increment_build_number" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "    build_app(" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "      scheme: \"MyApp\"," >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "      export_method: \"app-store\"," >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "      output_directory: \"build_output\"" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "    )" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "  end" >> "$PROJECT_DIR/fastlane/Fastfile"
-          echo "" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "  desc \"Upload to TestFlight\"" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "  lane :upload_to_testflight do" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "    upload_to_testflight" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "  end" >> "$PROJECT_DIR/fastlane/Fastfile"
+          echo "  desc \"Tag and Release\"" >> "$PROJECT_DIR/fastlane/Fastfile"
+          echo "  lane :tag_release do" >> "$PROJECT_DIR/fastlane/Fastfile"
+          echo "    add_git_tag" >> "$PROJECT_DIR/fastlane/Fastfile"
+          echo "  end" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "end" >> "$PROJECT_DIR/fastlane/Fastfile"
-
-      - name: 🔑 Setup App Store Connect API Key (Optional)
-        run: |
-          if [ -n "${{ secrets.APP_STORE_CONNECT_API_KEY_JSON }}" ]; then
-            mkdir -p ~/.appstoreconnect
-            echo "${{ secrets.APP_STORE_CONNECT_API_KEY_JSON }}" | base64 --decode > ~/.appstoreconnect/api_key.json
-            echo "✅ API key saved"
-          else
-            echo "⚠️ APP_STORE_CONNECT_API_KEY_JSON not set. Skipping TestFlight upload."
-          fi
-
-      - name: 🔐 Fastlane Match (Optional)
-        run: |
-          cd "$PROJECT_DIR"
-          if [ -n "${{ secrets.MATCH_PASSWORD }}" ] && [ -n "${{ secrets.MATCH_GIT_URL }}" ]; then
-            fastlane match appstore --readonly --git_url "${{ secrets.MATCH_GIT_URL }}" --type appstore
-          else
-            echo "⚠️ MATCH_PASSWORD or MATCH_GIT_URL not set. Skipping match."
-          fi
 
       - name: 🛠 Build with Fastlane
         run: |
           cd "$PROJECT_DIR"
-          fastlane build_app || echo "⚠️ build_app failed, continuing..."
+          fastlane build_app
+          echo "📦 IPA Files:"
+          ls -al build_output
 
       - name: ☁️ Upload to TestFlight (Optional)
         run: |
           cd "$PROJECT_DIR"
           if [ -f ~/.appstoreconnect/api_key.json ]; then
-            fastlane upload_to_testflight || echo "⚠️ upload_to_testflight failed"
+            fastlane upload_to_testflight || echo "⚠️ TestFlight upload failed"
           else
-            echo "⚠️ No API key. Skipping TestFlight upload."
+            echo "⚠️ Skipping TestFlight upload: API key not found"
           fi
+
+      - name: 🔖 Git Tag + Release Notes
+        run: |
+          cd "$PROJECT_DIR"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          version="v$(date +%Y.%m.%d)-build-${{ github.run_number }}"
+          echo "🔖 Creating Git tag $version"
+          git tag "$version"
+          git push origin "$version"
+          echo "📋 Generating GitHub Release..."
+          gh release create "$version" build_output/*.ipa --title "$version" --notes "✅ Automated build & TestFlight release by CI"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 📦 Compress Artifacts
         run: |
@@ -105,7 +118,7 @@ jobs:
           zip -r ../artifacts/App.ipa.zip build_output/*.ipa || true
           zip -r ../artifacts/App.dSYM.zip build_output/*.dSYM || true
 
-      - name: 📤 Upload Artifacts
+      - name: 📤 Upload Logs and Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
