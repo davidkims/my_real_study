@@ -1,4 +1,4 @@
-name: Xcode - Secure Build & Analyze
+name: Xcode - Build, Analyze, and Optional S3 Upload
 
 on:
   push:
@@ -7,76 +7,76 @@ on:
     branches: ["main"]
 
 jobs:
-  secure-build:
-    name: Secure Build with Xcode & Ruby
+  build-and-upload:
     runs-on: macos-13
-    timeout-minutes: 60
+    timeout-minutes: 90
+    env:
+      S3_KEY_PREFIX: ios_builds/${{ github.run_id }}
 
     steps:
-      - name: ✅ Checkout Source
+      - name: ✅ Checkout Code
         uses: actions/checkout@v4
 
-      - name: 🔒 Secure Directory & Permission Setup
+      - name: 🔒 Prepare Secure Directories
         run: |
-          mkdir -p build_output logs tmp config ruby_env json_output
-          chmod 700 build_output logs tmp config ruby_env json_output
-          sudo chown -R $(whoami) .
+          mkdir -p build_output logs tmp config ruby_env json_output artifacts
+          chmod 700 build_output logs tmp config ruby_env json_output artifacts
 
-      - name: 📦 Install Ruby 3.2.2 via rbenv
+      - name: 📁 Auto-Detect iOS Project Directory
+        run: |
+          if [ -d "./ios" ]; then cd ios
+          elif [ -d "./MyApp" ]; then cd MyApp
+          fi
+          echo "PROJECT_DIR=$(pwd)" >> $GITHUB_ENV
+
+      - name: 🧾 System Snapshot
+        run: |
+          mkdir -p logs
+          system_profiler SPSoftwareDataType > logs/system_snapshot.txt
+          xcodebuild -version > logs/xcode_version.txt
+
+      - name: 💎 Install Ruby and Bundle
         run: |
           brew install rbenv ruby-build
           eval "$(rbenv init - bash)"
           rbenv install -s 3.2.2
           rbenv global 3.2.2
-          echo "✅ Ruby version:"
+          gem install bundler
+          if [ -f Gemfile ]; then
+            bundle config set --local path 'vendor/bundle'
+            bundle install
+          fi
           ruby -v > logs/ruby_version.txt
 
-      - name: 📂 Navigate to Project Directory (if needed)
+      - name: 🧪 Extract Default Scheme
         run: |
-          echo "📁 Current directory: $(pwd)"
-          echo "📁 Listing files:"
-          ls -al
-          # 필요 시 자동 이동 로직 삽입 가능
-          # cd ios 또는 cd MyApp
-
-      - name: 🧪 Extract Default Scheme (Safe JSON + Ruby)
-        run: |
-          echo "🔍 Extracting default Xcode scheme..."
+          cd "$PROJECT_DIR"
           mkdir -p json_output
-
           if ls *.xcodeproj >/dev/null 2>&1 || ls *.xcworkspace >/dev/null 2>&1; then
-            echo "✅ Found Xcode project/workspace."
+            scheme_list=$(xcodebuild -list -json 2>/dev/null | tr -d "\n")
+            echo "$scheme_list" > json_output/scheme_list.json
+            default=$(echo "$scheme_list" | ruby -rjson -e 'puts JSON.parse(STDIN.read)["project"]["targets"][0]')
+            echo "$default" > default_scheme.txt
           else
-            echo "❌ No Xcode project or workspace found."
-            echo "[]" > json_output/scheme_list.json
-            echo "default-scheme-placeholder" > default_scheme.txt
-            exit 0
+            echo "❌ No Xcode project/workspace found."
+            exit 1
           fi
 
-          scheme_list=$(xcodebuild -list -json 2>/dev/null | tr -d "\n")
-          echo "$scheme_list" > json_output/scheme_list.json
-
-          if [ -z "$scheme_list" ]; then
-            echo "❌ Failed to get scheme list. Empty JSON."
-            echo "default-scheme-placeholder" > default_scheme.txt
-            exit 0
-          fi
-
-          default=$(echo "$scheme_list" | ruby -rjson -e 'puts JSON.parse(STDIN.read)["project"]["targets"][0]')
-          echo "$default" > default_scheme.txt
-          echo "✅ Default Scheme: $default"
-
-      - name: 🏗 Build & Analyze with xcodebuild
+      - name: 🏗 Safe Build and Analyze
         run: |
+          cd "$PROJECT_DIR"
           echo "🏗 Starting Xcode Build..."
           scheme=$(cat default_scheme.txt)
 
           if ls *.xcworkspace >/dev/null 2>&1; then
             filetype_parameter="workspace"
             file_to_build=$(ls *.xcworkspace | head -n 1)
-          else
+          elif ls *.xcodeproj >/dev/null 2>&1; then
             filetype_parameter="project"
             file_to_build=$(ls *.xcodeproj | head -n 1)
+          else
+            echo "❌ No Xcode project or workspace found"
+            exit 1
           fi
 
           echo "📦 Building $file_to_build with scheme $scheme"
@@ -85,16 +85,74 @@ jobs:
             -"$filetype_parameter" "$file_to_build" \
             | tee logs/xcodebuild.log \
             | xcpretty
+
           BUILD_STATUS=${PIPESTATUS[0]}
           echo "🔚 Xcode Build Exit Code: $BUILD_STATUS"
           exit $BUILD_STATUS
 
-      - name: 📤 Upload Build Logs & Artifacts
+      - name: 📤 Export .ipa and Compress (Skip if no team ID)
+        run: |
+          cd "$PROJECT_DIR"
+          scheme=$(cat default_scheme.txt)
+
+          if [ -z "${{ secrets.APPLE_TEAM_ID }}" ]; then
+            echo "⚠️ APPLE_TEAM_ID not set. Skipping exportArchive step."
+            exit 0
+          fi
+
+          cat <<EOF > ExportOptions.plist
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+  <key>method</key>
+  <string>development</string>
+  <key>compileBitcode</key>
+  <false/>
+  <key>signingStyle</key>
+  <string>automatic</string>
+  <key>stripSwiftSymbols</key>
+  <true/>
+  <key>teamID</key>
+  <string>${{ secrets.APPLE_TEAM_ID }}</string>
+</dict>
+</plist>
+EOF
+
+          if ls *.xcworkspace >/dev/null 2>&1; then
+            xcodebuild -workspace *.xcworkspace -scheme "$scheme" -sdk iphoneos -configuration Release -archivePath build_output/App.xcarchive archive
+          else
+            xcodebuild -project *.xcodeproj -scheme "$scheme" -sdk iphoneos -configuration Release -archivePath build_output/App.xcarchive archive
+          fi
+
+          xcodebuild -exportArchive -archivePath build_output/App.xcarchive \
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath build_output
+
+          mkdir -p artifacts
+          zip -r artifacts/App.ipa.zip build_output/*.ipa || true
+          zip -r artifacts/App.app.zip build_output/*.app || true
+          zip -r artifacts/App.dSYM.zip build_output/*.dSYM || true
+
+      - name: ☁️ Upload to AWS S3 (Optional)
+        if: ${{ secrets.AWS_ACCESS_KEY_ID != '' && secrets.AWS_SECRET_ACCESS_KEY != '' && secrets.S3_BUCKET_NAME != '' }}
+        uses: jakejarvis/s3-sync-action@master
+        with:
+          args: --acl private --follow-symlinks
+        env:
+          AWS_S3_BUCKET: ${{ secrets.S3_BUCKET_NAME }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          SOURCE_DIR: ${{ github.workspace }}/$PROJECT_DIR/artifacts
+          DEST_DIR: ${{ env.S3_KEY_PREFIX }}
+
+      - name: 📦 Upload Logs and Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: xcode-logs-and-json
+          name: xcode-logs-and-build
           path: |
             logs/
-            json_output/
-            default_scheme.txt
+            ${{ github.workspace }}/$PROJECT_DIR/json_output/
+            ${{ github.workspace }}/$PROJECT_DIR/build_output/
+            ${{ github.workspace }}/$PROJECT_DIR/artifacts/
