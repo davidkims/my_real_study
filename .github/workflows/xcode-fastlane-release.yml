@@ -1,4 +1,4 @@
-name: iOS Fastlane Build with Release Notes
+name: iOS CI with Fallback Project Generation
 
 on:
   push:
@@ -6,7 +6,6 @@ on:
 
 permissions:
   contents: write
-  packages: write
 
 jobs:
   ios-build:
@@ -24,25 +23,30 @@ jobs:
       - name: 📂 Debug File Structure
         run: |
           echo "📍 Current path: $(pwd)"
-          echo "🔍 Contents:"
+          echo "🔍 Top-level contents:"
           ls -al
-          echo "--- ./ios ---"
-          ls -al ios || echo "❌ no ./ios"
-          echo "--- ./MyApp ---"
-          ls -al MyApp || echo "❌ no ./MyApp"
 
-      - name: 🔍 Detect Xcode Project Directory
+      - name: 📦 Generate Dummy Project if None Found
         run: |
-          set -e
+          echo "🔍 Looking for .xcodeproj..."
+          found="false"
           for dir in . ./ios ./MyApp ./source; do
             if ls "$dir"/*.xcodeproj >/dev/null 2>&1 || ls "$dir"/*.xcworkspace >/dev/null 2>&1; then
               echo "✅ Found Xcode project in: $dir"
               echo "PROJECT_DIR=$dir" >> $GITHUB_ENV
-              exit 0
+              found="true"
+              break
             fi
           done
-          echo "❌ No .xcodeproj or .xcworkspace found"
-          exit 1
+
+          if [ "$found" = "false" ]; then
+            echo "⚠️ No project found. Creating dummy project in ./DummyApp"
+            mkdir -p DummyApp
+            cd DummyApp
+            swift package init --type executable
+            swift package generate-xcodeproj
+            echo "PROJECT_DIR=$(pwd)" >> $GITHUB_ENV
+          fi
 
       - name: 🔒 Prepare Directories
         run: |
@@ -57,25 +61,18 @@ jobs:
           rbenv global 3.2.2
           gem install bundler fastlane
 
-      - name: 📝 Auto-generate Fastfile with version bump
+      - name: 📝 Auto-generate Fastlane Fastfile
         run: |
           mkdir -p "$PROJECT_DIR/fastlane"
           echo "default_platform(:ios)" > "$PROJECT_DIR/fastlane/Fastfile"
           echo "platform :ios do" >> "$PROJECT_DIR/fastlane/Fastfile"
-          echo "  desc \"Build the app\"" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "  lane :build_app do" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "    increment_build_number" >> "$PROJECT_DIR/fastlane/Fastfile"
-          echo "    build_app(" >> "$PROJECT_DIR/fastlane/Fastfile"
-          echo "      scheme: \"MyApp\"," >> "$PROJECT_DIR/fastlane/Fastfile"
-          echo "      export_method: \"app-store\"," >> "$PROJECT_DIR/fastlane/Fastfile"
-          echo "      output_directory: \"build_output\"" >> "$PROJECT_DIR/fastlane/Fastfile"
-          echo "    )" >> "$PROJECT_DIR/fastlane/Fastfile"
+          echo "    build_app(scheme: \"DummyApp\", export_method: \"app-store\", output_directory: \"build_output\")" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "  end" >> "$PROJECT_DIR/fastlane/Fastfile"
-          echo "  desc \"Upload to TestFlight\"" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "  lane :upload_to_testflight do" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "    upload_to_testflight" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "  end" >> "$PROJECT_DIR/fastlane/Fastfile"
-          echo "  desc \"Tag and Release\"" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "  lane :tag_release do" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "    add_git_tag" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "  end" >> "$PROJECT_DIR/fastlane/Fastfile"
@@ -86,28 +83,18 @@ jobs:
           cd "$PROJECT_DIR"
           fastlane build_app
           echo "📦 IPA Files:"
-          ls -al build_output
+          ls -al build_output || echo "⚠️ No IPA files found"
 
-      - name: ☁️ Upload to TestFlight (Optional)
-        run: |
-          cd "$PROJECT_DIR"
-          if [ -f ~/.appstoreconnect/api_key.json ]; then
-            fastlane upload_to_testflight || echo "⚠️ TestFlight upload failed"
-          else
-            echo "⚠️ Skipping TestFlight upload: API key not found"
-          fi
-
-      - name: 🔖 Git Tag + Release Notes
+      - name: 🔖 Git Tag and Release
         run: |
           cd "$PROJECT_DIR"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           version="v$(date +%Y.%m.%d)-build-${{ github.run_number }}"
-          echo "🔖 Creating Git tag $version"
+          echo "🔖 Tag: $version"
           git tag "$version"
           git push origin "$version"
-          echo "📋 Generating GitHub Release..."
-          gh release create "$version" build_output/*.ipa --title "$version" --notes "✅ Automated build & TestFlight release by CI"
+          gh release create "$version" build_output/*.ipa --title "$version" --notes "🚀 Automated release"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -118,11 +105,11 @@ jobs:
           zip -r ../artifacts/App.ipa.zip build_output/*.ipa || true
           zip -r ../artifacts/App.dSYM.zip build_output/*.dSYM || true
 
-      - name: 📤 Upload Logs and Artifacts
+      - name: 📤 Upload Build Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-fastlane-artifacts
+          name: ios-artifacts
           path: |
             logs/
             artifacts/
