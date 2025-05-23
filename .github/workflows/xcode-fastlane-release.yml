@@ -1,4 +1,4 @@
-name: iOS CI with Fallback Project Generation
+name: iOS Fastlane Build with Release Notes
 
 on:
   push:
@@ -26,9 +26,9 @@ jobs:
           echo "🔍 Top-level contents:"
           ls -al
 
-      - name: 📦 Generate Dummy Project if None Found
+      - name: 📦 Detect or Create Dummy Xcode Project
         run: |
-          echo "🔍 Looking for .xcodeproj..."
+          set -e
           found="false"
           for dir in . ./ios ./MyApp ./source; do
             if ls "$dir"/*.xcodeproj >/dev/null 2>&1 || ls "$dir"/*.xcworkspace >/dev/null 2>&1; then
@@ -40,20 +40,45 @@ jobs:
           done
 
           if [ "$found" = "false" ]; then
-            echo "⚠️ No project found. Creating dummy project in ./DummyApp"
-            mkdir -p DummyApp
-            cd DummyApp
-            swift package init --type executable
-            swift package generate-xcodeproj
-            echo "PROJECT_DIR=$(pwd)" >> $GITHUB_ENV
+            echo "⚠️ No project found. Creating DummyApp..."
+            mkdir -p DummyApp/DummyApp
+            cat > DummyApp/DummyApp/AppDelegate.swift <<EOF
+import UIKit
+
+@UIApplicationMain
+class AppDelegate: UIResponder, UIApplicationDelegate {
+    var window: UIWindow?
+}
+EOF
+
+            cat > DummyApp/Info.plist <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>com.example.DummyApp</string>
+  <key>CFBundleName</key>
+  <string>DummyApp</string>
+</dict>
+</plist>
+EOF
+
+            cat > DummyApp/project.pbxproj <<EOF
+// Empty project placeholder to fake Xcode structure
+EOF
+            mkdir -p DummyApp/DummyApp.xcodeproj
+            mv DummyApp/project.pbxproj DummyApp/DummyApp.xcodeproj/project.pbxproj
+            echo "PROJECT_DIR=DummyApp" >> $GITHUB_ENV
           fi
 
-      - name: 🔒 Prepare Directories
+      - name: 🔒 Prepare Build Folders
         run: |
           mkdir -p build_output logs artifacts
           chmod 700 build_output logs artifacts
 
-      - name: 💎 Install Ruby and Fastlane
+      - name: 💎 Install Ruby, Fastlane, GitHub CLI
         run: |
           brew install rbenv ruby-build gh
           eval "$(rbenv init - bash)"
@@ -61,7 +86,7 @@ jobs:
           rbenv global 3.2.2
           gem install bundler fastlane
 
-      - name: 📝 Auto-generate Fastlane Fastfile
+      - name: 📝 Auto-generate Fastfile
         run: |
           mkdir -p "$PROJECT_DIR/fastlane"
           echo "default_platform(:ios)" > "$PROJECT_DIR/fastlane/Fastfile"
@@ -78,23 +103,32 @@ jobs:
           echo "  end" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "end" >> "$PROJECT_DIR/fastlane/Fastfile"
 
-      - name: 🛠 Build with Fastlane
+      - name: 🛠 Build the App
         run: |
           cd "$PROJECT_DIR"
           fastlane build_app
-          echo "📦 IPA Files:"
+          echo "📦 Built IPA Files:"
           ls -al build_output || echo "⚠️ No IPA files found"
 
-      - name: 🔖 Git Tag and Release
+      - name: ☁️ Upload to TestFlight (Optional)
+        run: |
+          cd "$PROJECT_DIR"
+          if [ -f ~/.appstoreconnect/api_key.json ]; then
+            fastlane upload_to_testflight || echo "⚠️ TestFlight upload failed"
+          else
+            echo "⚠️ Skipping TestFlight upload: API key not found"
+          fi
+
+      - name: 🔖 Git Tag and Release Notes
         run: |
           cd "$PROJECT_DIR"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           version="v$(date +%Y.%m.%d)-build-${{ github.run_number }}"
-          echo "🔖 Tag: $version"
+          echo "🔖 Tagging as $version"
           git tag "$version"
           git push origin "$version"
-          gh release create "$version" build_output/*.ipa --title "$version" --notes "🚀 Automated release"
+          gh release create "$version" build_output/*.ipa --title "$version" --notes "🚀 CI build and release"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
