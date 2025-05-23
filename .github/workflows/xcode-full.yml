@@ -1,4 +1,4 @@
-name: Xcode Fastlane Build & TestFlight Upload
+name: Xcode Fastlane Build & TestFlight
 
 on:
   push:
@@ -65,34 +65,29 @@ jobs:
           echo "  end" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "end" >> "$PROJECT_DIR/fastlane/Fastfile"
 
-      - name: 🔑 Optional: Setup App Store Connect API Key
+      - name: 🔑 Setup App Store Connect API Key (Optional)
         run: |
-          if [ -n "${APP_STORE_CONNECT_API_KEY_JSON}" ]; then
+          if [ -n "${{ secrets.APP_STORE_CONNECT_API_KEY_JSON }}" ]; then
             mkdir -p ~/.appstoreconnect
-            echo "${APP_STORE_CONNECT_API_KEY_JSON}" | base64 --decode > ~/.appstoreconnect/api_key.json
+            echo "${{ secrets.APP_STORE_CONNECT_API_KEY_JSON }}" | base64 --decode > ~/.appstoreconnect/api_key.json
             echo "✅ API key saved"
           else
-            echo "⚠️ APP_STORE_CONNECT_API_KEY_JSON not set. TestFlight upload will be skipped."
+            echo "⚠️ APP_STORE_CONNECT_API_KEY_JSON not set. Skipping TestFlight upload."
           fi
-        env:
-          APP_STORE_CONNECT_API_KEY_JSON: ${{ secrets.APP_STORE_CONNECT_API_KEY_JSON }}
 
-      - name: 🔐 Optional: Fastlane Match
+      - name: 🔐 Fastlane Match (Optional)
         run: |
           cd "$PROJECT_DIR"
-          if [ -n "${MATCH_PASSWORD}" ] && [ -n "${MATCH_GIT_URL}" ]; then
-            fastlane match appstore --readonly --git_url "${MATCH_GIT_URL}" --type appstore
+          if [ -n "${{ secrets.MATCH_PASSWORD }}" ] && [ -n "${{ secrets.MATCH_GIT_URL }}" ]; then
+            fastlane match appstore --readonly --git_url "${{ secrets.MATCH_GIT_URL }}" --type appstore
           else
             echo "⚠️ MATCH_PASSWORD or MATCH_GIT_URL not set. Skipping match."
           fi
-        env:
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
 
       - name: 🛠 Build with Fastlane
         run: |
           cd "$PROJECT_DIR"
-          fastlane build_app || echo "⚠️ build_app failed"
+          fastlane build_app || echo "⚠️ build_app failed, continuing..."
 
       - name: ☁️ Upload to TestFlight (Optional)
         run: |
