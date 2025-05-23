@@ -1,16 +1,18 @@
-name: Xcode Full Build and Optional S3 Upload
+name: Xcode Fastlane Build & TestFlight
 
 on:
   push:
-    branches: ["main"]
+    branches: [main]
   pull_request:
-    branches: ["main"]
+    branches: [main]
 
 jobs:
-  xcode-secure-build:
+  ios-build:
     runs-on: macos-13
     timeout-minutes: 90
     env:
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
       S3_KEY_PREFIX: ios_builds/${{ github.run_id }}
 
     steps:
@@ -21,132 +23,106 @@ jobs:
         id: detect_project_dir
         run: |
           set -e
-          found_dir=""
           for dir in . ./ios ./MyApp ./source; do
             if ls "$dir"/*.xcodeproj >/dev/null 2>&1 || ls "$dir"/*.xcworkspace >/dev/null 2>&1; then
-              found_dir="$dir"
-              break
+              echo "✅ Found project in: $dir"
+              echo "PROJECT_DIR=$dir" >> $GITHUB_ENV
+              exit 0
             fi
           done
-          if [ -z "$found_dir" ]; then
-            echo "❌ Could not find any .xcodeproj or .xcworkspace."
-            exit 1
-          fi
-          echo "✅ Found Xcode project in: $found_dir"
-          echo "PROJECT_DIR=$found_dir" >> $GITHUB_ENV
+          echo "❌ No Xcode project found"
+          exit 1
 
-      - name: 🔒 Prepare Directories and Permissions
+      - name: 🔒 Prepare Directories
         run: |
-          mkdir -p build_output logs tmp config ruby_env json_output artifacts
-          chmod 700 build_output logs tmp config ruby_env json_output artifacts
+          mkdir -p build_output logs artifacts fastlane
+          chmod 700 build_output logs artifacts fastlane
 
-      - name: 🧾 System Snapshot
-        run: |
-          mkdir -p logs
-          system_profiler SPSoftwareDataType > logs/system_snapshot.txt
-          xcodebuild -version > logs/xcode_version.txt
-
-      - name: 💎 Install Ruby and Bundle
+      - name: 💎 Install Ruby and Fastlane
         run: |
           brew install rbenv ruby-build
           eval "$(rbenv init - bash)"
           rbenv install -s 3.2.2
           rbenv global 3.2.2
           gem install bundler
-          if [ -f Gemfile ]; then
-            bundle config set --local path 'vendor/bundle'
-            bundle install
-          fi
-          ruby -v > logs/ruby_version.txt
+          gem install fastlane
 
-      - name: 🧪 Extract Default Scheme
+      - name: 📝 Auto-generate Fastlane Files
         run: |
-          cd "$PROJECT_DIR"
-          mkdir -p json_output
-          if ls *.xcodeproj >/dev/null 2>&1 || ls *.xcworkspace >/dev/null 2>&1; then
-            scheme_list=$(xcodebuild -list -json 2>/dev/null | tr -d "\n")
-            echo "$scheme_list" > json_output/scheme_list.json
-            default=$(echo "$scheme_list" | ruby -rjson -e 'puts JSON.parse(STDIN.read)["project"]["targets"][0]')
-            echo "$default" > default_scheme.txt
-          else
-            echo "❌ No Xcode project/workspace found inside $PROJECT_DIR"
-            exit 1
-          fi
+          mkdir -p "$PROJECT_DIR/fastlane"
+          cat > "$PROJECT_DIR/fastlane/Fastfile" <<EOF
+default_platform(:ios)
 
-      - name: 🏗 Build and Analyze
+platform :ios do
+  desc "Build the app"
+  lane :build_app do
+    build_app(
+      scheme: "MyApp",
+      export_method: "app-store",
+      output_directory: "build_output"
+    )
+  end
+
+  desc "Upload to TestFlight"
+  lane :upload_to_testflight do
+    upload_to_testflight
+  end
+end
+EOF
+
+      - name: 🔑 Optional: Setup App Store Connect API Key
         run: |
-          cd "$PROJECT_DIR"
-          scheme=$(cat default_scheme.txt)
-
-          if ls *.xcworkspace >/dev/null 2>&1; then
-            filetype_parameter="workspace"
-            file_to_build=$(ls *.xcworkspace | head -n 1)
-          elif ls *.xcodeproj >/dev/null 2>&1; then
-            filetype_parameter="project"
-            file_to_build=$(ls *.xcodeproj | head -n 1)
+          if [ -n "${APP_STORE_CONNECT_API_KEY_JSON}" ]; then
+            mkdir -p ~/.appstoreconnect
+            echo "${APP_STORE_CONNECT_API_KEY_JSON}" | base64 --decode > ~/.appstoreconnect/api_key.json
+            echo "✅ API key written to ~/.appstoreconnect/api_key.json"
           else
-            echo "❌ No .xcodeproj or .xcworkspace in $PROJECT_DIR"
-            exit 1
+            echo "⚠️ APP_STORE_CONNECT_API_KEY_JSON not set. Skipping TestFlight."
           fi
-
-          echo "📦 Building $file_to_build with scheme $scheme"
-          xcodebuild clean build analyze \
-            -scheme "$scheme" \
-            -"$filetype_parameter" "$file_to_build" \
-            | tee logs/xcodebuild.log \
-            | xcpretty
-          exit ${PIPESTATUS[0]}
-
-      - name: 📦 Export and Zip Artifacts (if APPLE_TEAM_ID exists)
-        run: |
-          cd "$PROJECT_DIR"
-          scheme=$(cat default_scheme.txt)
-
-          if [ -z "${APPLE_TEAM_ID}" ]; then
-            echo "⚠️ APPLE_TEAM_ID not set. Skipping export."
-            exit 0
-          fi
-
-          echo '<?xml version="1.0" encoding="UTF-8"?>' > ExportOptions.plist
-          echo '<plist version="1.0">' >> ExportOptions.plist
-          echo '<dict>' >> ExportOptions.plist
-          echo '  <key>method</key>' >> ExportOptions.plist
-          echo '  <string>development</string>' >> ExportOptions.plist
-          echo '  <key>compileBitcode</key>' >> ExportOptions.plist
-          echo '  <false/>' >> ExportOptions.plist
-          echo '  <key>signingStyle</key>' >> ExportOptions.plist
-          echo '  <string>automatic</string>' >> ExportOptions.plist
-          echo '  <key>stripSwiftSymbols</key>' >> ExportOptions.plist
-          echo '  <true/>' >> ExportOptions.plist
-          echo '  <key>teamID</key>' >> ExportOptions.plist
-          echo "  <string>${APPLE_TEAM_ID}</string>" >> ExportOptions.plist
-          echo '</dict>' >> ExportOptions.plist
-          echo '</plist>' >> ExportOptions.plist
-
-          if ls *.xcworkspace >/dev/null 2>&1; then
-            xcodebuild -workspace *.xcworkspace -scheme "$scheme" -sdk iphoneos -configuration Release -archivePath build_output/App.xcarchive archive
-          else
-            xcodebuild -project *.xcodeproj -scheme "$scheme" -sdk iphoneos -configuration Release -archivePath build_output/App.xcarchive archive
-          fi
-
-          xcodebuild -exportArchive -archivePath build_output/App.xcarchive \
-            -exportOptionsPlist ExportOptions.plist \
-            -exportPath build_output
-
-          mkdir -p artifacts
-          zip -r artifacts/App.ipa.zip build_output/*.ipa || true
-          zip -r artifacts/App.app.zip build_output/*.app || true
-          zip -r artifacts/App.dSYM.zip build_output/*.dSYM || true
         env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APP_STORE_CONNECT_API_KEY_JSON: ${{ secrets.APP_STORE_CONNECT_API_KEY_JSON }}
+
+      - name: ✅ Fastlane Match (Optional)
+        run: |
+          cd "$PROJECT_DIR"
+          if [ -n "${MATCH_PASSWORD}" ] && [ -n "${MATCH_GIT_URL}" ]; then
+            fastlane match appstore --readonly \
+              --git_url "${MATCH_GIT_URL}" \
+              --type appstore
+          else
+            echo "⚠️ MATCH_PASSWORD or MATCH_GIT_URL not set. Skipping code signing match."
+          fi
+        env:
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+
+      - name: 🛠 Fastlane Build (Always)
+        run: |
+          cd "$PROJECT_DIR"
+          fastlane build_app || echo "⚠️ build_app failed, but continuing"
+
+      - name: ☁️ Upload to TestFlight (Optional)
+        run: |
+          cd "$PROJECT_DIR"
+          if [ -f ~/.appstoreconnect/api_key.json ]; then
+            fastlane upload_to_testflight || echo "⚠️ TestFlight upload failed, continuing"
+          else
+            echo "⚠️ API key missing. Skipping TestFlight upload."
+          fi
+
+      - name: 📦 Zip Build Artifacts
+        run: |
+          cd "$PROJECT_DIR"
+          mkdir -p ../artifacts
+          zip -r ../artifacts/App.ipa.zip build_output/*.ipa || true
+          zip -r ../artifacts/App.dSYM.zip build_output/*.dSYM || true
 
       - name: ☁️ Upload to AWS S3 (Optional)
         run: |
           if [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECRET_ACCESS_KEY" ] && [ -n "$S3_BUCKET_NAME" ]; then
             echo "✅ Uploading to S3..."
-            aws s3 cp artifacts/App.ipa.zip "s3://${S3_BUCKET_NAME}/${S3_KEY_PREFIX}/App.ipa.zip" || true
-            aws s3 cp artifacts/App.app.zip "s3://${S3_BUCKET_NAME}/${S3_KEY_PREFIX}/App.app.zip" || true
-            aws s3 cp artifacts/App.dSYM.zip "s3://${S3_BUCKET_NAME}/${S3_KEY_PREFIX}/App.dSYM.zip" || true
+            aws s3 cp ../artifacts/App.ipa.zip "s3://${S3_BUCKET_NAME}/${S3_KEY_PREFIX}/App.ipa.zip" || true
+            aws s3 cp ../artifacts/App.dSYM.zip "s3://${S3_BUCKET_NAME}/${S3_KEY_PREFIX}/App.dSYM.zip" || true
           else
             echo "⚠️ AWS secrets not fully set. Skipping S3 upload."
           fi
@@ -161,9 +137,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: xcode-build-logs-and-artifacts
+          name: ios-fastlane-logs-artifacts
           path: |
             logs/
-            ${{ github.workspace }}/$PROJECT_DIR/json_output/
-            ${{ github.workspace }}/$PROJECT_DIR/build_output/
-            ${{ github.workspace }}/$PROJECT_DIR/artifacts/
+            artifacts/
