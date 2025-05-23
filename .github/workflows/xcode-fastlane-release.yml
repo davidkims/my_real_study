@@ -1,4 +1,4 @@
-name: iOS Fastlane Build with Git Tag and Release
+name: iOS Fastlane Build and GitHub Release
 
 on:
   push:
@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 jobs:
-  ios-ci:
+  ios-build:
     runs-on: macos-13
     timeout-minutes: 60
 
@@ -20,10 +20,10 @@ jobs:
       S3_KEY_PREFIX: ios_builds/${{ github.run_id }}
 
     steps:
-      - name: ✅ Checkout code
+      - name: ✅ Checkout Code
         uses: actions/checkout@v4
 
-      - name: 📁 Check for Xcode project or create Swift fallback
+      - name: 📁 Check or Create Swift CLI Project
         run: |
           echo "🔍 Checking for .xcodeproj..."
           for dir in . ./ios ./MyApp ./source; do
@@ -41,7 +41,7 @@ jobs:
           echo "print(\"✅ Hello from fallback Swift CLI app\")" > Sources/$PROJECT_NAME/main.swift
           echo "PROJECT_DIR=$(pwd)" >> $GITHUB_ENV
 
-      - name: 🔒 Prepare folders
+      - name: 🔒 Prepare Directories
         run: |
           mkdir -p build_output logs artifacts
           chmod -R 700 build_output logs artifacts
@@ -54,37 +54,40 @@ jobs:
           rbenv global 3.2.2
           gem install bundler fastlane
 
-      - name: 📝 Auto-generate Fastlane Fastfile (echo-safe)
+      - name: 📝 Auto-generate Fastfile (build only)
         run: |
           mkdir -p "$PROJECT_DIR/fastlane"
           echo "default_platform(:ios)" > "$PROJECT_DIR/fastlane/Fastfile"
-          echo "" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "platform :ios do" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "  lane :build_app do" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "    puts \"✅ Starting fastlane build\"" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "    sh(\"xcodebuild -scheme DummyApp -derivedDataPath build -sdk macosx build\")" >> "$PROJECT_DIR/fastlane/Fastfile"
-          echo "  end" >> "$PROJECT_DIR/fastlane/Fastfile"
-          echo "" >> "$PROJECT_DIR/fastlane/Fastfile"
-          echo "  lane :tag_release do" >> "$PROJECT_DIR/fastlane/Fastfile"
-          echo "    version = Time.now.strftime(\"v%Y.%m.%d-build-${{ github.run_number }}\")" >> "$PROJECT_DIR/fastlane/Fastfile"
-          echo "    puts \"🔖 Tagging as \#{version}\"" >> "$PROJECT_DIR/fastlane/Fastfile"
-          echo "    sh(\"git config user.name 'github-actions[bot]'\")" >> "$PROJECT_DIR/fastlane/Fastfile"
-          echo "    sh(\"git config user.email 'github-actions[bot]@users.noreply.github.com'\")" >> "$PROJECT_DIR/fastlane/Fastfile"
-          echo "    sh(\"git tag \#{version}\")" >> "$PROJECT_DIR/fastlane/Fastfile"
-          echo "    sh(\"git push origin \#{version}\")" >> "$PROJECT_DIR/fastlane/Fastfile"
-          echo "    sh(\"gh release create \#{version} --title '\#{version}' --notes '🚀 CI release'\")" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "  end" >> "$PROJECT_DIR/fastlane/Fastfile"
           echo "end" >> "$PROJECT_DIR/fastlane/Fastfile"
 
       - name: 🛠 Build via Fastlane
         run: |
           cd "$PROJECT_DIR"
-          fastlane build_app || echo "⚠️ build_app failed (no Xcode GUI app?)"
+          fastlane build_app || echo "⚠️ fastlane build_app failed (expected if not a GUI app)"
 
-      - name: 🔖 Git Tag & GitHub Release
+      - name: 🔖 Create Git Tag
         run: |
           cd "$PROJECT_DIR"
-          fastlane tag_release || echo "⚠️ Tag release failed"
+          VERSION_TAG="v$(date +%Y.%m.%d)-build-${{ github.run_number }}"
+          echo "✅ Tagging as $VERSION_TAG"
+          echo "VERSION_TAG=$VERSION_TAG" >> $GITHUB_ENV
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$VERSION_TAG"
+          git push origin "$VERSION_TAG"
+
+      - name: 🚀 Create GitHub Release
+        run: |
+          cd "$PROJECT_DIR"
+          echo "📦 Creating GitHub release for tag: $VERSION_TAG"
+          gh release create "$VERSION_TAG" \
+            --title "$VERSION_TAG" \
+            --notes "✅ CI build on $(date)"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -95,7 +98,6 @@ jobs:
           zip -r ../artifacts/${{ env.PROJECT_NAME }}.zip . || true
 
       - name: 📤 Upload Artifacts
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ios-artifacts
