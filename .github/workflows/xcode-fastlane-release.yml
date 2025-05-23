@@ -1,4 +1,4 @@
-name: Swift CLI Build + GitHub Release
+name: Swift CLI Build and Release
 
 on:
   push:
@@ -8,9 +8,9 @@ permissions:
   contents: write
 
 jobs:
-  swift-cli-build:
+  build-release:
     runs-on: macos-13
-    timeout-minutes: 60
+    timeout-minutes: 30
 
     env:
       PROJECT_NAME: DummyApp
@@ -18,21 +18,26 @@ jobs:
       VERSION_TAG: v${{ github.run_number }}-$(date +%Y%m%d)
 
     steps:
-      - name: ✅ Checkout
+      - name: ✅ Checkout Code
         uses: actions/checkout@v4
 
-      - name: 📁 Create Swift CLI Project (if none)
+      - name: 📁 Create Swift CLI Project
         run: |
           mkdir -p DummyApp/Sources/DummyApp
           cd DummyApp
           swift package init --type executable
-          echo "print(\"✅ Hello from Swift CLI App\")" > Sources/DummyApp/main.swift
+          echo 'print("✅ Hello from Swift CLI App")' > Sources/DummyApp/main.swift
 
-      - name: 🛠 Build Swift CLI App (xcodebuild)
+      - name: 📂 Ensure Directories Exist
+        run: |
+          mkdir -p logs artifacts
+
+      - name: 🛠 Build with Xcode
         run: |
           cd "$PROJECT_DIR"
-          echo "🛠 Running: xcodebuild -scheme DummyApp"
-          xcodebuild -scheme DummyApp -destination 'platform=macOS' clean build | tee ../../logs/xcodebuild.log
+          echo "🛠 Building with xcodebuild..."
+          xcodebuild -scheme DummyApp -destination 'platform=macOS' clean build \
+            | tee "$GITHUB_WORKSPACE/logs/xcodebuild.log"
 
       - name: 🔖 Create Git Tag
         run: |
@@ -42,11 +47,13 @@ jobs:
           git tag "${VERSION_TAG}"
           git push origin "${VERSION_TAG}"
 
-      - name: 🚀 GitHub Release
+      - name: 🚀 Create GitHub Release
         run: |
-          gh release create "${VERSION_TAG}" \
-            --title "${VERSION_TAG}" \
-            --notes "✅ CLI build via CI on $(date)"
+          cd "$PROJECT_DIR"
+          echo "📦 Creating GitHub release for tag: $VERSION_TAG"
+          gh release create "$VERSION_TAG" \
+            --title "$VERSION_TAG" \
+            --notes "✅ Swift CLI build completed on $(date)"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -60,4 +67,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: swift-cli-artifacts
-          path: artifacts/
+          path: |
+            artifacts/
+            logs/
