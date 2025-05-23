@@ -1,4 +1,4 @@
-name: Xcode - Build, Analyze, and Optional S3 Upload
+name: Xcode Full Build and Optional Upload
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     branches: ["main"]
 
 jobs:
-  build-and-upload:
+  xcode-secure-build:
     runs-on: macos-13
     timeout-minutes: 90
     env:
@@ -62,10 +62,9 @@ jobs:
             exit 1
           fi
 
-      - name: 🏗 Safe Build and Analyze
+      - name: 🏗 Build and Analyze
         run: |
           cd "$PROJECT_DIR"
-          echo "🏗 Starting Xcode Build..."
           scheme=$(cat default_scheme.txt)
 
           if ls *.xcworkspace >/dev/null 2>&1; then
@@ -75,7 +74,7 @@ jobs:
             filetype_parameter="project"
             file_to_build=$(ls *.xcodeproj | head -n 1)
           else
-            echo "❌ No Xcode project or workspace found"
+            echo "❌ No .xcodeproj or .xcworkspace found"
             exit 1
           fi
 
@@ -86,11 +85,9 @@ jobs:
             | tee logs/xcodebuild.log \
             | xcpretty
 
-          BUILD_STATUS=${PIPESTATUS[0]}
-          echo "🔚 Xcode Build Exit Code: $BUILD_STATUS"
-          exit $BUILD_STATUS
+          exit ${PIPESTATUS[0]}
 
-      - name: 📤 Export .ipa and Compress (Skip if no team ID)
+      - name: 📦 Export and Zip Artifacts (Optional)
         run: |
           cd "$PROJECT_DIR"
           scheme=$(cat default_scheme.txt)
@@ -100,23 +97,21 @@ jobs:
             exit 0
           fi
 
-          cat <<EOF > ExportOptions.plist
-<?xml version="1.0" encoding="UTF-8"?>
-<plist version="1.0">
-<dict>
-  <key>method</key>
-  <string>development</string>
-  <key>compileBitcode</key>
-  <false/>
-  <key>signingStyle</key>
-  <string>automatic</string>
-  <key>stripSwiftSymbols</key>
-  <true/>
-  <key>teamID</key>
-  <string>${{ secrets.APPLE_TEAM_ID }}</string>
-</dict>
-</plist>
-EOF
+          echo '<?xml version="1.0" encoding="UTF-8"?>' > ExportOptions.plist
+          echo '<plist version="1.0">' >> ExportOptions.plist
+          echo '<dict>' >> ExportOptions.plist
+          echo '  <key>method</key>' >> ExportOptions.plist
+          echo '  <string>development</string>' >> ExportOptions.plist
+          echo '  <key>compileBitcode</key>' >> ExportOptions.plist
+          echo '  <false/>' >> ExportOptions.plist
+          echo '  <key>signingStyle</key>' >> ExportOptions.plist
+          echo '  <string>automatic</string>' >> ExportOptions.plist
+          echo '  <key>stripSwiftSymbols</key>' >> ExportOptions.plist
+          echo '  <true/>' >> ExportOptions.plist
+          echo '  <key>teamID</key>' >> ExportOptions.plist
+          echo "  <string>${{ secrets.APPLE_TEAM_ID }}</string>" >> ExportOptions.plist
+          echo '</dict>' >> ExportOptions.plist
+          echo '</plist>' >> ExportOptions.plist
 
           if ls *.xcworkspace >/dev/null 2>&1; then
             xcodebuild -workspace *.xcworkspace -scheme "$scheme" -sdk iphoneos -configuration Release -archivePath build_output/App.xcarchive archive
@@ -146,11 +141,11 @@ EOF
           SOURCE_DIR: ${{ github.workspace }}/$PROJECT_DIR/artifacts
           DEST_DIR: ${{ env.S3_KEY_PREFIX }}
 
-      - name: 📦 Upload Logs and Artifacts
+      - name: 📤 Upload Logs and Build Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: xcode-logs-and-build
+          name: xcode-build-logs-and-artifacts
           path: |
             logs/
             ${{ github.workspace }}/$PROJECT_DIR/json_output/
