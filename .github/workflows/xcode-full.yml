@@ -1,0 +1,80 @@
+name: Xcode - Secure Build & Analyze
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  secure-build:
+    name: Secure Build with Xcode & Ruby
+    runs-on: macos-13 # or macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: ✅ Checkout Source
+        uses: actions/checkout@v4
+
+      - name: 🔒 Secure Directory & Permission Setup
+        run: |
+          echo "📁 Creating protected directories..."
+          mkdir -p build_output logs tmp config ruby_env json_output
+          chmod 700 build_output logs tmp config ruby_env json_output
+          sudo chown -R $(whoami) .
+
+      - name: 📦 Install Xcode CLT & list Xcode versions
+        run: |
+          echo "🛠 Available Xcode versions:"
+          ls /Applications | grep Xcode
+          sudo xcode-select --print-path
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer || true
+
+      - name: 📌 Ensure Ruby Environment
+        run: |
+          echo "🧰 Installing Ruby 3.2.2 with rbenv..."
+          brew install rbenv ruby-build
+          eval "$(rbenv init -)"
+          rbenv install -s 3.2.2
+          rbenv global 3.2.2
+          ruby -v > logs/ruby_version.txt
+
+      - name: 🧪 Extract Default Scheme (JSON + Ruby)
+        run: |
+          echo "🔍 Extracting default Xcode scheme..."
+          scheme_list=$(xcodebuild -list -json | tr -d "\n")
+          echo "$scheme_list" > json_output/scheme_list.json
+          default=$(echo "$scheme_list" | ruby -rjson -e 'puts JSON.parse(STDIN.read)["project"]["targets"][0]')
+          echo "$default" > default_scheme.txt
+          echo "✅ Default Scheme: $default"
+
+      - name: 🏗 Build & Analyze with Xcode
+        run: |
+          echo "🏗 Running secure xcodebuild..."
+          scheme=$(cat default_scheme.txt)
+          if [ "$(ls -A | grep -i \.xcworkspace$)" ]; then 
+            filetype_parameter="workspace"
+            file_to_build=$(ls -A | grep -i \.xcworkspace$)
+          else
+            filetype_parameter="project"
+            file_to_build=$(ls -A | grep -i \.xcodeproj$)
+          fi
+          file_to_build=$(echo "$file_to_build" | awk '{$1=$1;print}')
+          xcodebuild clean build analyze \
+            -scheme "$scheme" \
+            -"$filetype_parameter" "$file_to_build" \
+            | tee logs/xcodebuild.log \
+            | xcpretty
+          BUILD_STATUS=${PIPESTATUS[0]}
+          echo "Xcode Build Exit Code: $BUILD_STATUS"
+          exit $BUILD_STATUS
+
+      - name: 📄 Upload Logs & JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcode-build-logs
+          path: |
+            logs/
+            json_output/
+            default_scheme.txt
