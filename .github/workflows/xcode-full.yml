@@ -17,17 +17,28 @@ jobs:
       - name: ✅ Checkout Code
         uses: actions/checkout@v4
 
-      - name: 🔒 Prepare Directories
+      - name: 🔍 Detect Xcode Project Directory
+        id: detect_project_dir
+        run: |
+          set -e
+          found_dir=""
+          for dir in . ./ios ./MyApp ./source; do
+            if ls "$dir"/*.xcodeproj >/dev/null 2>&1 || ls "$dir"/*.xcworkspace >/dev/null 2>&1; then
+              found_dir="$dir"
+              break
+            fi
+          done
+          if [ -z "$found_dir" ]; then
+            echo "❌ Could not find any .xcodeproj or .xcworkspace."
+            exit 1
+          fi
+          echo "✅ Found Xcode project in: $found_dir"
+          echo "PROJECT_DIR=$found_dir" >> $GITHUB_ENV
+
+      - name: 🔒 Prepare Directories and Permissions
         run: |
           mkdir -p build_output logs tmp config ruby_env json_output artifacts
           chmod 700 build_output logs tmp config ruby_env json_output artifacts
-
-      - name: 📁 Auto-Detect iOS Project Directory
-        run: |
-          if [ -d "./ios" ]; then cd ios
-          elif [ -d "./MyApp" ]; then cd MyApp
-          fi
-          echo "PROJECT_DIR=$(pwd)" >> $GITHUB_ENV
 
       - name: 🧾 System Snapshot
         run: |
@@ -58,7 +69,7 @@ jobs:
             default=$(echo "$scheme_list" | ruby -rjson -e 'puts JSON.parse(STDIN.read)["project"]["targets"][0]')
             echo "$default" > default_scheme.txt
           else
-            echo "❌ No Xcode project/workspace found."
+            echo "❌ No Xcode project/workspace found inside $PROJECT_DIR"
             exit 1
           fi
 
@@ -74,7 +85,7 @@ jobs:
             filetype_parameter="project"
             file_to_build=$(ls *.xcodeproj | head -n 1)
           else
-            echo "❌ No .xcodeproj or .xcworkspace found"
+            echo "❌ No .xcodeproj or .xcworkspace in $PROJECT_DIR"
             exit 1
           fi
 
@@ -84,7 +95,6 @@ jobs:
             -"$filetype_parameter" "$file_to_build" \
             | tee logs/xcodebuild.log \
             | xcpretty
-
           exit ${PIPESTATUS[0]}
 
       - name: 📦 Export and Zip Artifacts (if APPLE_TEAM_ID exists)
