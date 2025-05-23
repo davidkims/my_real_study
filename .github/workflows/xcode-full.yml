@@ -9,7 +9,7 @@ on:
 jobs:
   secure-build:
     name: Secure Build with Xcode & Ruby
-    runs-on: macos-13 # or macos-latest
+    runs-on: macos-13
     timeout-minutes: 60
 
     steps:
@@ -18,62 +18,82 @@ jobs:
 
       - name: 🔒 Secure Directory & Permission Setup
         run: |
-          echo "📁 Creating protected directories..."
           mkdir -p build_output logs tmp config ruby_env json_output
           chmod 700 build_output logs tmp config ruby_env json_output
           sudo chown -R $(whoami) .
 
-      - name: 📦 Install Xcode CLT & list Xcode versions
+      - name: 📦 Install Ruby 3.2.2 via rbenv
         run: |
-          echo "🛠 Available Xcode versions:"
-          ls /Applications | grep Xcode
-          sudo xcode-select --print-path
-          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer || true
-
-      - name: 📌 Ensure Ruby Environment
-        run: |
-          echo "🧰 Installing Ruby 3.2.2 with rbenv..."
           brew install rbenv ruby-build
-          eval "$(rbenv init -)"
+          eval "$(rbenv init - bash)"
           rbenv install -s 3.2.2
           rbenv global 3.2.2
+          echo "✅ Ruby version:"
           ruby -v > logs/ruby_version.txt
 
-      - name: 🧪 Extract Default Scheme (JSON + Ruby)
+      - name: 📂 Navigate to Project Directory (if needed)
+        run: |
+          echo "📁 Current directory: $(pwd)"
+          echo "📁 Listing files:"
+          ls -al
+          # 필요 시 자동 이동 로직 삽입 가능
+          # cd ios 또는 cd MyApp
+
+      - name: 🧪 Extract Default Scheme (Safe JSON + Ruby)
         run: |
           echo "🔍 Extracting default Xcode scheme..."
-          scheme_list=$(xcodebuild -list -json | tr -d "\n")
+          mkdir -p json_output
+
+          if ls *.xcodeproj >/dev/null 2>&1 || ls *.xcworkspace >/dev/null 2>&1; then
+            echo "✅ Found Xcode project/workspace."
+          else
+            echo "❌ No Xcode project or workspace found."
+            echo "[]" > json_output/scheme_list.json
+            echo "default-scheme-placeholder" > default_scheme.txt
+            exit 0
+          fi
+
+          scheme_list=$(xcodebuild -list -json 2>/dev/null | tr -d "\n")
           echo "$scheme_list" > json_output/scheme_list.json
+
+          if [ -z "$scheme_list" ]; then
+            echo "❌ Failed to get scheme list. Empty JSON."
+            echo "default-scheme-placeholder" > default_scheme.txt
+            exit 0
+          fi
+
           default=$(echo "$scheme_list" | ruby -rjson -e 'puts JSON.parse(STDIN.read)["project"]["targets"][0]')
           echo "$default" > default_scheme.txt
           echo "✅ Default Scheme: $default"
 
-      - name: 🏗 Build & Analyze with Xcode
+      - name: 🏗 Build & Analyze with xcodebuild
         run: |
-          echo "🏗 Running secure xcodebuild..."
+          echo "🏗 Starting Xcode Build..."
           scheme=$(cat default_scheme.txt)
-          if [ "$(ls -A | grep -i \.xcworkspace$)" ]; then 
+
+          if ls *.xcworkspace >/dev/null 2>&1; then
             filetype_parameter="workspace"
-            file_to_build=$(ls -A | grep -i \.xcworkspace$)
+            file_to_build=$(ls *.xcworkspace | head -n 1)
           else
             filetype_parameter="project"
-            file_to_build=$(ls -A | grep -i \.xcodeproj$)
+            file_to_build=$(ls *.xcodeproj | head -n 1)
           fi
-          file_to_build=$(echo "$file_to_build" | awk '{$1=$1;print}')
+
+          echo "📦 Building $file_to_build with scheme $scheme"
           xcodebuild clean build analyze \
             -scheme "$scheme" \
             -"$filetype_parameter" "$file_to_build" \
             | tee logs/xcodebuild.log \
             | xcpretty
           BUILD_STATUS=${PIPESTATUS[0]}
-          echo "Xcode Build Exit Code: $BUILD_STATUS"
+          echo "🔚 Xcode Build Exit Code: $BUILD_STATUS"
           exit $BUILD_STATUS
 
-      - name: 📄 Upload Logs & JSON
+      - name: 📤 Upload Build Logs & Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: xcode-build-logs
+          name: xcode-logs-and-json
           path: |
             logs/
             json_output/
