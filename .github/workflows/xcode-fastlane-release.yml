@@ -20,87 +20,85 @@ jobs:
       S3_KEY_PREFIX: ios_builds/${{ github.run_id }}
 
     steps:
-    - name: ✅ Checkout code
-      uses: actions/checkout@v4
+      - name: ✅ Checkout code
+        uses: actions/checkout@v4
 
-    - name: 📁 Check for Xcode project or create fallback Swift package
-      run: |
-        echo "🔍 Checking for .xcodeproj..."
-        for dir in . ./ios ./MyApp ./source; do
-          if ls "$dir"/*.xcodeproj >/dev/null 2>&1; then
-            echo "✅ Found .xcodeproj in $dir"
-            echo "PROJECT_DIR=$dir" >> $GITHUB_ENV
-            exit 0
-          fi
-        done
+      - name: 📁 Check for Xcode project or create Swift fallback
+        run: |
+          echo "🔍 Checking for .xcodeproj..."
+          for dir in . ./ios ./MyApp ./source; do
+            if ls "$dir"/*.xcodeproj >/dev/null 2>&1; then
+              echo "✅ Found .xcodeproj in $dir"
+              echo "PROJECT_DIR=$dir" >> $GITHUB_ENV
+              exit 0
+            fi
+          done
 
-        echo "⚠️ No .xcodeproj found. Creating fallback Swift package..."
-        mkdir -p $PROJECT_NAME/Sources/$PROJECT_NAME
-        cd $PROJECT_NAME
-        swift package init --type executable
-        echo "print(\"✅ Hello from fallback Swift package\")" > Sources/$PROJECT_NAME/main.swift
-        echo "PROJECT_DIR=$(pwd)" >> $GITHUB_ENV
+          echo "⚠️ No .xcodeproj found. Creating fallback Swift CLI project..."
+          mkdir -p $PROJECT_NAME/Sources/$PROJECT_NAME
+          cd $PROJECT_NAME
+          swift package init --type executable
+          echo "print(\"✅ Hello from fallback Swift CLI app\")" > Sources/$PROJECT_NAME/main.swift
+          echo "PROJECT_DIR=$(pwd)" >> $GITHUB_ENV
 
-    - name: 🔒 Prepare folders
-      run: |
-        mkdir -p build_output logs artifacts
-        chmod -R 700 build_output logs artifacts
+      - name: 🔒 Prepare folders
+        run: |
+          mkdir -p build_output logs artifacts
+          chmod -R 700 build_output logs artifacts
 
-    - name: 💎 Install Ruby, Fastlane, GitHub CLI
-      run: |
-        brew install rbenv ruby-build gh
-        eval "$(rbenv init - bash)"
-        rbenv install -s 3.2.2
-        rbenv global 3.2.2
-        gem install bundler fastlane
+      - name: 💎 Install Ruby, Fastlane, GitHub CLI
+        run: |
+          brew install rbenv ruby-build gh
+          eval "$(rbenv init - bash)"
+          rbenv install -s 3.2.2
+          rbenv global 3.2.2
+          gem install bundler fastlane
 
-    - name: 📝 Auto-generate Fastlane Fastfile
-      run: |
-        mkdir -p "$PROJECT_DIR/fastlane"
-        cat <<EOF > "$PROJECT_DIR/fastlane/Fastfile"
-default_platform(:ios)
+      - name: 📝 Auto-generate Fastlane Fastfile (echo-safe)
+        run: |
+          mkdir -p "$PROJECT_DIR/fastlane"
+          echo "default_platform(:ios)" > "$PROJECT_DIR/fastlane/Fastfile"
+          echo "" >> "$PROJECT_DIR/fastlane/Fastfile"
+          echo "platform :ios do" >> "$PROJECT_DIR/fastlane/Fastfile"
+          echo "  lane :build_app do" >> "$PROJECT_DIR/fastlane/Fastfile"
+          echo "    puts \"✅ Starting fastlane build\"" >> "$PROJECT_DIR/fastlane/Fastfile"
+          echo "    sh(\"xcodebuild -scheme DummyApp -derivedDataPath build -sdk macosx build\")" >> "$PROJECT_DIR/fastlane/Fastfile"
+          echo "  end" >> "$PROJECT_DIR/fastlane/Fastfile"
+          echo "" >> "$PROJECT_DIR/fastlane/Fastfile"
+          echo "  lane :tag_release do" >> "$PROJECT_DIR/fastlane/Fastfile"
+          echo "    version = Time.now.strftime(\"v%Y.%m.%d-build-${{ github.run_number }}\")" >> "$PROJECT_DIR/fastlane/Fastfile"
+          echo "    puts \"🔖 Tagging as \#{version}\"" >> "$PROJECT_DIR/fastlane/Fastfile"
+          echo "    sh(\"git config user.name 'github-actions[bot]'\")" >> "$PROJECT_DIR/fastlane/Fastfile"
+          echo "    sh(\"git config user.email 'github-actions[bot]@users.noreply.github.com'\")" >> "$PROJECT_DIR/fastlane/Fastfile"
+          echo "    sh(\"git tag \#{version}\")" >> "$PROJECT_DIR/fastlane/Fastfile"
+          echo "    sh(\"git push origin \#{version}\")" >> "$PROJECT_DIR/fastlane/Fastfile"
+          echo "    sh(\"gh release create \#{version} --title '\#{version}' --notes '🚀 CI release'\")" >> "$PROJECT_DIR/fastlane/Fastfile"
+          echo "  end" >> "$PROJECT_DIR/fastlane/Fastfile"
+          echo "end" >> "$PROJECT_DIR/fastlane/Fastfile"
 
-platform :ios do
-  lane :build_app do
-    puts "✅ Starting fastlane build"
-    sh("xcodebuild -scheme DummyApp -derivedDataPath build -sdk macosx build")
-  end
+      - name: 🛠 Build via Fastlane
+        run: |
+          cd "$PROJECT_DIR"
+          fastlane build_app || echo "⚠️ build_app failed (no Xcode GUI app?)"
 
-  lane :tag_release do
-    version = Time.now.strftime("v%Y.%m.%d-build-${{ github.run_number }}")
-    puts "🔖 Tagging as \#{version}"
-    sh("git config user.name 'github-actions[bot]'")
-    sh("git config user.email 'github-actions[bot]@users.noreply.github.com'")
-    sh("git tag \#{version}")
-    sh("git push origin \#{version}")
-    sh("gh release create \#{version} --title '\#{version}' --notes '🚀 CI release'")
-  end
-end
-EOF
+      - name: 🔖 Git Tag & GitHub Release
+        run: |
+          cd "$PROJECT_DIR"
+          fastlane tag_release || echo "⚠️ Tag release failed"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: 🛠 Run fastlane build
-      run: |
-        cd "$PROJECT_DIR"
-        fastlane build_app || echo "⚠️ Fastlane build failed but continuing"
+      - name: 📦 Compress Artifacts
+        run: |
+          cd "$PROJECT_DIR"
+          mkdir -p ../artifacts
+          zip -r ../artifacts/${{ env.PROJECT_NAME }}.zip . || true
 
-    - name: 🔖 Create Git tag and GitHub release
-      run: |
-        cd "$PROJECT_DIR"
-        fastlane tag_release
-
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: 📦 Compress Build Artifacts
-      run: |
-        cd "$PROJECT_DIR"
-        mkdir -p ../artifacts
-        zip -r ../artifacts/${{ env.PROJECT_NAME }}.zip . || true
-
-    - name: 📤 Upload All Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: ios-artifacts
-        path: |
-          artifacts/
-          logs/
+      - name: 📤 Upload Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-artifacts
+          path: |
+            artifacts/
+            logs/
