@@ -15,7 +15,6 @@ jobs:
     env:
       PROJECT_NAME: DummyApp
       PROJECT_DIR: ${{ github.workspace }}/DummyApp
-      VERSION_TAG: v${{ github.run_number }}-$(date +%Y%m%d)
 
     steps:
       - name: ✅ Checkout Code
@@ -42,10 +41,13 @@ jobs:
       - name: 🔖 Create Git Tag
         run: |
           cd "$PROJECT_DIR"
+          VERSION_TAG="v${{ github.run_number }}-$(date +%Y%m%d)"
+          echo "🔖 Tagging as $VERSION_TAG"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "${VERSION_TAG}"
-          git push origin "${VERSION_TAG}"
+          git tag "$VERSION_TAG"
+          git push origin "$VERSION_TAG"
+          echo "VERSION_TAG=$VERSION_TAG" >> $GITHUB_ENV
 
       - name: 🚀 Create GitHub Release
         run: |
@@ -56,12 +58,12 @@ jobs:
             --notes "✅ Swift CLI build completed on $(date)"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION_TAG: ${{ env.VERSION_TAG }}
 
       - name: 📦 Archive Build Artifacts
         run: |
           cd "$PROJECT_DIR"
-          mkdir -p ../artifacts
-          zip -r ../artifacts/${PROJECT_NAME}.zip . || true
+          zip -r "$GITHUB_WORKSPACE/artifacts/${PROJECT_NAME}.zip" . || true
 
       - name: 📤 Upload Artifacts
         uses: actions/upload-artifact@v4
