@@ -87,15 +87,6 @@ jobs:
       - name: Generate Markdown report
         run: |
           cat <<EOF > .github/docs/scorecard_report.md
-# GitHub Actions 보안 자동 수정 리포트
-
-| 항목 | 적용 여부 |
-|------|-----------|
-| upload-artifact@v3 제거 | YES |
-| permissions 필드 누락 수정 | YES |
-| Scorecard PR 자동 승인 | YES |
-| GitHub Pages 보고서 배포 | YES |
-EOF
 
       - name: Install PDF toolchain
         run: |
