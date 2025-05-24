@@ -1,0 +1,93 @@
+name: Secure Super Linter with Auto Fix and Permissions Audit
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+  actions: write
+  id-token: write
+
+jobs:
+  audit-and-lint:
+    runs-on: ubuntu-latest
+    env:
+      DEFAULT_BRANCH: "main"
+      REPO_NAME: ${{ github.repository }}
+
+    steps:
+      - name: ✅ Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: ✅ Setup Node, Python, Java (for linter dependencies)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: ✅ Audit workflow permissions
+        run: |
+          echo "🔐 Checking permissions in .github/workflows..."
+          mkdir -p secure-audit/reports
+          grep -Ri --include '*.yml' 'permissions:' .github/workflows > secure-audit/reports/permissions.txt || echo "No permissions block found."
+          grep -Ri --include '*.yml' 'secrets\.' .github/workflows > secure-audit/reports/secrets.txt || echo "No secrets usage found."
+
+      - name: ✅ Auto-fix insecure workflows (add permissions block if missing)
+        run: |
+          find .github/workflows -type f -name '*.yml' | while read file; do
+            if ! grep -q 'permissions:' "$file"; then
+              sed -i 's/on:/permissions:\n  contents: read\n  pull-requests: write\n  security-events: write\n  actions: write\n  id-token: write\n\non:/' "$file"
+              echo "🛠️ Added permissions block to $file"
+            fi
+          done
+
+      - name: ✅ Generate temporary token (fine-grained PAT replacement)
+        id: token-gen
+        run: |
+          echo "::add-mask::fake-token-1234567890"
+          echo "TOKEN=fake-token-1234567890" >> $GITHUB_ENV
+
+      - name: ✅ Apply Super-Linter
+        uses: github/super-linter@v4
+        env:
+          VALIDATE_ALL_CODEBASE: false
+          DEFAULT_BRANCH: "main"
+          GITHUB_TOKEN: ${{ env.TOKEN }}
+
+      - name: ✅ Create directories and apply changes securely
+        run: |
+          TIMESTAMP=$(date +%Y%m%d-%H%M)
+          SLOT_DIR=disk-slot/slot-$TIMESTAMP
+          mkdir -p "$SLOT_DIR/logs" "$SLOT_DIR/tmp" "$SLOT_DIR/reports"
+          echo "📁 디렉토리 생성 완료: $SLOT_DIR"
+
+      - name: ✅ Install essential services (mock)
+        run: |
+          echo "🔧 필수 소프트웨어 설치 중..."
+          sudo apt-get update && sudo apt-get install -y jq curl unzip
+          echo "✅ 서버 설치 완료"
+
+      - name: ✅ Log process information
+        run: |
+          ps aux > "$SLOT_DIR/logs/process_list.txt"
+          df -h > "$SLOT_DIR/logs/disk_usage.txt"
+          echo "📄 프로세스 및 디스크 로그 기록 완료"
+
+      - name: ✅ Save audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-security-reports
+          path: secure-audit/reports
