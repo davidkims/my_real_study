@@ -22,91 +22,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: ✅ 필수 디렉토리 및 파일 생성
+      - name: ✅ 디렉토리 생성
         run: |
           mkdir -p .github/workflows/{ci,lint,security,deploy}
           mkdir -p backend/src/main/java/com/example
           mkdir -p backend/src/main/resources
           mkdir -p disk-slot/slot-${TIMESTAMP}/{logs,build,run,tmp}
 
-          if [ ! -f "backend/pom.xml" ]; then
-            cat <<'EOF' > backend/pom.xml
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
-                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
-  <modelVersion>4.0.0</modelVersion>
-  <groupId>com.example</groupId>
-  <artifactId>secure-spring</artifactId>
-  <version>0.0.1-SNAPSHOT</version>
-  <packaging>jar</packaging>
-  <name>secure-spring</name>
-  <description>Secure Spring Boot App</description>
-
-  <parent>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-parent</artifactId>
-    <version>3.2.5</version>
-  </parent>
-
-  <properties>
-    <java.version>17</java.version>
-  </properties>
-
-  <dependencies>
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-web</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-actuator</artifactId>
-    </dependency>
-  </dependencies>
-
-  <build>
-    <plugins>
-      <plugin>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-maven-plugin</artifactId>
-      </plugin>
-    </plugins>
-  </build>
-</project>
-EOF
-          fi
-
-          if [ ! -f "backend/src/main/resources/application.yml" ]; then
-            cat <<'EOF' > backend/src/main/resources/application.yml
-server:
-  port: 8080
-
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info
-  endpoint:
-    health:
-      show-details: always
-EOF
-          fi
-
-          if [ ! -f "backend/src/main/java/com/example/Application.java" ]; then
-            cat <<'EOF' > backend/src/main/java/com/example/Application.java
-package com.example;
-
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
-
-@SpringBootApplication
-public class Application {
-  public static void main(String[] args) {
-    SpringApplication.run(Application.class, args);
-  }
-}
-EOF
-          fi
+      - name: ✅ 서버에서 소스파일 다운로드
+        run: |
+          curl -sL https://your-server.com/spring/pom.xml -o backend/pom.xml
+          curl -sL https://your-server.com/spring/application.yml -o backend/src/main/resources/application.yml
+          curl -sL https://your-server.com/spring/Application.java -o backend/src/main/java/com/example/Application.java
 
       - name: ✅ JDK & Maven 설치
         uses: actions/setup-java@v4
