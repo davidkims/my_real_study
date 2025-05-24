@@ -80,7 +80,9 @@ jobs:
       - name: Generate manual if token is missing
         if: steps.token-check.outputs.available == 'false'
         run: |
-          cat <<EOF > .github/docs/how_to_enable_scorecard_fix.md
+          echo "📘 Creating .github/docs/how_to_enable_scorecard_fix.md"
+          mkdir -p .github/docs
+          tee .github/docs/how_to_enable_scorecard_fix.md > /dev/null <<EOF
 # 🛡️ GitHub Scorecard 자동 수정 활성화 가이드
 
 이 워크플로우는 보안 자동 수정을 위해 \`GH_ADMIN_TOKEN\`이 필요합니다.
@@ -113,5 +115,3 @@ jobs:
 
 이제 [Actions 탭](../../actions)에서 \`Scorecard Auto-Fix\`를 수동 실행하거나, push 발생 시 자동 실행됩니다.
 EOF
-
-          echo "📘 사용 설명서 생성됨 → .github/docs/how_to_enable_scorecard_fix.md"
