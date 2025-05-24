@@ -29,15 +29,14 @@ jobs:
           mkdir -p backend/src/main/resources
           mkdir -p disk-slot/slot-${TIMESTAMP}/{logs,build,run,tmp}
 
-      - name: ✅ 소스 파일 다운로드 (자동 백업 URL 포함)
+      - name: ✅ 소스 파일 다운로드 (백업 URL 포함)
         run: |
           set -e
 
-          # 파일 정의
           declare -A FILES
-          FILES["backend/pom.xml"]="https://your-primary-url.com/spring/pom.xml https://your-backup-url.com/spring/pom.xml"
-          FILES["backend/src/main/resources/application.yml"]="https://your-primary-url.com/spring/application.yml https://your-backup-url.com/spring/application.yml"
-          FILES["backend/src/main/java/com/example/Application.java"]="https://your-primary-url.com/spring/Application.java https://your-backup-url.com/spring/Application.java"
+          FILES["backend/pom.xml"]="https://raw.githubusercontent.com/example-user/spring-template/main/pom.xml https://backup.example.com/spring/pom.xml"
+          FILES["backend/src/main/resources/application.yml"]="https://raw.githubusercontent.com/example-user/spring-template/main/application.yml https://backup.example.com/spring/application.yml"
+          FILES["backend/src/main/java/com/example/Application.java"]="https://raw.githubusercontent.com/example-user/spring-template/main/Application.java https://backup.example.com/spring/Application.java"
 
           for FILE in "${!FILES[@]}"; do
             URLS=${FILES[$FILE]}
@@ -47,7 +46,6 @@ jobs:
               echo "⬇️ ${FILE} ← ${URL}"
               curl -sfL "$URL" -o "$FILE" || continue
 
-              # HTML이면 실패 처리
               if grep -qi '<html' "$FILE"; then
                 echo "⚠️ Invalid HTML content detected in $FILE from $URL"
                 continue
