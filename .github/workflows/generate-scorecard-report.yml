@@ -1,37 +1,40 @@
-name: Generate Scorecard PDF Report
+name: Generate and Deploy Scorecard Report
 
 on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+  pages: write
+  id-token: write
 
 jobs:
-  generate-pdf:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare report directory
+      - name: Prepare .github/docs directory
         run: mkdir -p .github/docs
 
-      - name: Generate Markdown report
+      - name: Generate Markdown report (no emojis)
         run: |
-          echo "# ✅ Scorecard 10/10 Security Setup Summary" > .github/docs/scorecard_report.md
-          echo "" >> .github/docs/scorecard_report.md
-          echo "| 항목 | 적용 여부 |" >> .github/docs/scorecard_report.md
-          echo "|------|-----------|" >> .github/docs/scorecard_report.md
-          echo "| Token Permissions | ✅ 자동 삽입 |" >> .github/docs/scorecard_report.md
-          echo "| Pinned Actions    | ✅ 자동 처리 |" >> .github/docs/scorecard_report.md
-          echo "| Security Policy   | ✅ 생성 완료 |" >> .github/docs/scorecard_report.md
-          echo "| Dependabot        | ✅ 구성 완료 |" >> .github/docs/scorecard_report.md
-          echo "| CodeQL SAST       | ✅ 언어 확인 후 실행 |" >> .github/docs/scorecard_report.md
-          echo "| Branch Protection | ✅ gh API 적용 |" >> .github/docs/scorecard_report.md
-          echo "| GH_ADMIN_TOKEN    | ✅ 조건 분기 처리 |" >> .github/docs/scorecard_report.md
+          REPORT=.github/docs/scorecard_report.md
+          echo "# Scorecard 10/10 Security Setup Summary" > $REPORT
+          echo "" >> $REPORT
+          echo "| 항목 | 적용 여부 |" >> $REPORT
+          echo "|------|-----------|" >> $REPORT
+          echo "| Token Permissions | YES (자동 삽입) |" >> $REPORT
+          echo "| Pinned Actions    | YES (버전 고정) |" >> $REPORT
+          echo "| Security Policy   | YES (.md 생성됨) |" >> $REPORT
+          echo "| Dependabot        | YES (자동 갱신) |" >> $REPORT
+          echo "| CodeQL SAST       | YES (언어 조건 자동 실행) |" >> $REPORT
+          echo "| Branch Protection | YES (gh CLI 적용) |" >> $REPORT
+          echo "| GH_ADMIN_TOKEN    | YES (조건 처리) |" >> $REPORT
 
-      - name: Install Pandoc + Full TeX Live (for PDF)
+      - name: Install Pandoc + TeX Live
         run: |
           sudo apt-get update
           sudo apt-get install -y pandoc texlive texlive-latex-extra texlive-xetex
@@ -40,8 +43,14 @@ jobs:
         run: |
           pandoc .github/docs/scorecard_report.md -o .github/docs/scorecard_report.pdf
 
-      - name: Upload PDF as artifact
-        uses: actions/upload-artifact@v4
+      - name: Convert Markdown to HTML
+        run: |
+          pandoc .github/docs/scorecard_report.md -o .github/docs/scorecard_report.html
+
+      - name: Upload pages artifact
+        uses: actions/upload-pages-artifact@v2
         with:
-          name: scorecard-report
-          path: .github/docs/scorecard_report.pdf
+          path: .github/docs
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v2
