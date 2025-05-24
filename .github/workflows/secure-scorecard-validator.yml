@@ -29,24 +29,22 @@ jobs:
           echo "🔍 Validating SARIF file..."
           if ! jq empty results.sarif 2>/dev/null; then
             echo "❌ Invalid SARIF format detected!"
-            cat <<EOF > results.sarif
-{
-  "version": "2.1.0",
-  "runs": [
-    {
-      "tool": {
-        "driver": {
-          "name": "Fallback",
-          "version": "1.0.0",
-          "informationUri": "https://example.com",
-          "rules": []
-        }
-      },
-      "results": []
-    }
-  ]
-}
-EOF
+            echo '{
+              "version": "2.1.0",
+              "runs": [
+                {
+                  "tool": {
+                    "driver": {
+                      "name": "Fallback",
+                      "version": "1.0.0",
+                      "informationUri": "https://example.com",
+                      "rules": []
+                    }
+                  },
+                  "results": []
+                }
+              ]
+            }' > results.sarif
             echo "fallback=true" >> "$GITHUB_OUTPUT"
           else
             echo "✅ SARIF file is valid."
