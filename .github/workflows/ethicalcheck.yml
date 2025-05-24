@@ -1,0 +1,53 @@
+name: 에시컬체크 보안 테스트 자동화
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: '39 2 * * 4'  # 매주 목요일 오전 11:39 (한국시간 기준 UTC+9 → UTC 2:39)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  ethicalcheck_security_scan:  # job ID는 영어로만 구성 (한글 사용 불가)
+    name: 🔐 EthicalCheck 자동 보안 점검  # 사람이 보는 이름, 한글 및 이모지 가능
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📦 레포지토리 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 📁 디스크 슬롯 및 디렉토리 생성
+        id: make-slot
+        run: |
+          TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
+          SLOT_DIR="disk-slot/slot-${TIMESTAMP}"
+          echo "SLOT_DIR=$SLOT_DIR" >> $GITHUB_ENV
+          mkdir -p "${SLOT_DIR}/logs"
+          mkdir -p "${SLOT_DIR}/reports"
+          echo "📂 디스크 슬롯 디렉토리 생성 완료: ${SLOT_DIR}"
+
+      - name: 🔍 EthicalCheck 자동 보안 점검 실행
+        uses: apisec-inc/ethicalcheck-action@005fac321dd843682b1af6b72f30caaf9952c641
+        with:
+          # 🔗 보안 점검 대상 API 명세 (Swagger URL 또는 Postman Collection URL)
+          oas-url: "http://netbanking.apisec.ai:8080/v2/api-docs"
+          # 📧 리포트 전송받을 이메일 주소
+          email: "your-email@example.com"
+          # 🧾 SARIF 리포트 저장 경로 (디스크 슬롯 구조 활용)
+          sarif-result-file: "${{ env.SLOT_DIR }}/reports/ethicalcheck-results.sarif"
+
+      - name: ☁️ GitHub에 SARIF 결과 업로드
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ env.SLOT_DIR }}/reports/ethicalcheck-results.sarif
+
+      - name: 🧾 실행 로그 기록
+        run: |
+          echo "✅ EthicalCheck 테스트 완료 시각: $(date)" > ${{ env.SLOT_DIR }}/logs/ethicalcheck.log
+          ls -al ${{ env.SLOT_DIR }}/reports >> ${{ env.SLOT_DIR }}/logs/ethicalcheck.log
