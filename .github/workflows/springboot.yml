@@ -1,14 +1,17 @@
 ---
-name: Spring Boot Install & Server Run
+name: Spring Boot Install, Security Scan & Healthcheck
 
 on:
   workflow_dispatch:
 
 permissions:
   contents: write
+  pull-requests: write
+  security-events: write
+  statuses: write
 
 jobs:
-  spring-boot-setup:
+  spring-boot-secure-setup:
     runs-on: ubuntu-latest
 
     env:
@@ -20,40 +23,73 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: ✅ 디렉토리 생성 (.github/workflows 포함)
+      - name: ✅ 디렉토리 생성
         run: |
           mkdir -p .github/workflows/{ci,lint,security,deploy}
           mkdir -p ./disk-slot/slot-${TIMESTAMP}/{logs,build,run,tmp}
 
-      - name: ✅ JDK 및 Maven 설치 (공식 지원)
+      - name: ✅ JDK 및 Maven 설치
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
           cache: 'maven'
 
-      - name: ✅ Spring Boot JAR 빌드
+      - name: ✅ Spring Boot application.yml 존재 여부 확인
         run: |
-          echo "📦 빌드 시작..."
+          if [ ! -f "./backend/src/main/resources/application.yml" ]; then
+            echo "❌ application.yml 파일이 존재하지 않습니다."
+            exit 1
+          fi
+          echo "✅ application.yml 확인됨"
+
+      - name: ✅ Spring Boot JAR 빌드 (pom.xml이 backend 디렉토리에 있는 경우)
+        run: |
           mvn clean package -DskipTests
-          cp target/*.jar disk-slot/slot-${TIMESTAMP}/build/
-          echo "✅ 빌드 완료"
+          cp target/*.jar ../../disk-slot/slot-${TIMESTAMP}/build/
+        working-directory: ./backend
 
       - name: ✅ Spring Boot 실행 (백그라운드)
         run: |
-          echo "🚀 서버 실행 중..."
           nohup java -jar disk-slot/slot-${TIMESTAMP}/build/*.jar \
             > disk-slot/slot-${TIMESTAMP}/run/server.log 2>&1 &
           echo $! > disk-slot/slot-${TIMESTAMP}/run/server.pid
+
+      - name: ✅ Health Check (http://localhost:8080/actuator/health)
+        run: |
+          echo "⏳ 서버 Health Check 중..."
+          for i in {1..10}; do
+            sleep 5
+            curl -sf http://localhost:8080/actuator/health && echo "✅ Health OK" && exit 0
+          done
+          echo "❌ Health Check 실패" && exit 1
+
+      - name: ✅ CodeQL 초기화
+        uses: github/codeql-action/init@v3
+        with:
+          languages: java
+
+      - name: ✅ CodeQL 빌드
+        run: mvn clean install -DskipTests
+        working-directory: ./backend
+
+      - name: ✅ CodeQL 분석 실행
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: security
+
+      - name: ✅ OpenSSF Scorecard 실행
+        uses: ossf/scorecard-action@v2
+        with:
+          results_file: disk-slot/slot-${TIMESTAMP}/logs/scorecard.json
 
       - name: ✅ 디스크 및 프로세스 상태 기록
         run: |
           ps aux > disk-slot/slot-${TIMESTAMP}/logs/process.log
           df -h > disk-slot/slot-${TIMESTAMP}/logs/disk.log
-          echo "📄 상태 로그 저장 완료"
 
-      - name: ✅ 로그 아티팩트 업로드
+      - name: ✅ 로그 업로드
         uses: actions/upload-artifact@v4
         with:
-          name: spring-boot-logs-${{ env.TIMESTAMP }}
+          name: spring-boot-secure-logs-${{ env.TIMESTAMP }}
           path: disk-slot/slot-${TIMESTAMP}/logs
