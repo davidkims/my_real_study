@@ -1,38 +1,133 @@
-name: CodeQL Analysis
+# .github/workflows/codeql-analysis.yml
+name: "CodeQL"
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
   schedule:
-    - cron: '0 1 * * 0'
+    - cron: '32 17 * * 4'
 
-permissions: read-all
+permissions:
+  contents: read
+  security-events: write
 
 jobs:
   analyze:
+    name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-      actions: read
-      contents: read
-
+    timeout-minutes: 360
     strategy:
+      fail-fast: false
       matrix:
-        language: [ 'javascript', 'python' ]  # 필요한 언어 설정
+        language: ["javascript", "python"]
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4.1.1
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@2b36c681e1e88e5b9f254ec01549d9c2a258c37e
         with:
           languages: ${{ matrix.language }}
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@2b36c681e1e88e5b9f254ec01549d9c2a258c37e
 
-      - name: Analyze
-        uses: github/codeql-action/analyze@v3
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@2b36c681e1e88e5b9f254ec01549d9c2a258c37e
+
+---
+
+# .github/workflows/scorecard.yml
+name: OpenSSF Scorecard
+
+on:
+  schedule:
+    - cron: '30 1 * * 1'
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+  id-token: write
+  security-events: write
+
+jobs:
+  scorecard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Run Scorecard analysis
+        uses: ossf/scorecard-action@f49aabe0b5af0936a0987cfb85d86b75731b0186
+        with:
+          results_file: results.sarif
+          results_format: sarif
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1
+        with:
+          name: SARIF file
+          path: results.sarif
+
+      - name: Upload to GitHub code scanning
+        uses: github/codeql-action/upload-sarif@2b36c681e1e88e5b9f254ec01549d9c2a258c37e
+        with:
+          sarif_file: results.sarif
+
+---
+
+# .github/dependabot.yml
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+---
+
+# SECURITY.md
+# Security Policy
+
+## Supported Versions
+| Version | Supported          |
+| ------- | ------------------ |
+| Latest  | :white_check_mark: |
+
+## Reporting a Vulnerability
+Please open a GitHub Security Advisory.
+
+---
+
+# CODEOWNERS
+* @your-github-username
+
+---
+
+# Branch protection 명령어 (CLI)
+gh api \
+  --method PUT \
+  -H "Accept: application/vnd.github+json" \
+  /repos/OWNER/REPO/branches/main/protection \
+  -f required_status_checks.strict=true \
+  -f enforce_admins=true \
+  -f required_pull_request_reviews.dismiss_stale_reviews=true \
+  -f required_pull_request_reviews.required_approving_review_count=1 \
+  -f restrictions=null
+
+# 참조: 위 명령어는 GitHub CLI를 사용해 main 브랜치 보호 정책을 설정합니다.
+
+---
+
+# 자동 SHA 고정 GitHub Action Ref 스크립트 (예시)
+# 사용 전 해당 SHA는 공식 리포지터리에서 검증 필요
+# 사용 예: actions/checkout@<SHA>
+
+# 예시: 최신 SHA 조회
+# curl -s https://api.github.com/repos/actions/checkout/commits | jq '.[0].sha'
