@@ -1,24 +1,28 @@
-name: Secure GitHub Setup
+name: Setup Branch Protection
 
 on:
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pull-requests: write
-  actions: write
-  security-events: write
-
 jobs:
-  secure-github:
+  protect-branch:
     runs-on: ubuntu-latest
-    env:
-      REPO: ${{ github.repository }}
+
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set branch protection rules (admin PAT required)
+      - name: Install GitHub CLI
+        uses: cli/cli-action@v2
+
+      - name: Authenticate GitHub CLI
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: gh auth status
+
+      - name: Set branch protection for main
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+          REPO: davidkims/my_real_study
         run: |
           gh api -X PUT repos/$REPO/branches/main/protection \
             -f required_status_checks.strict=true \
@@ -27,55 +31,3 @@ jobs:
             -f required_pull_request_reviews.dismiss_stale_reviews=true \
             -f required_pull_request_reviews.required_approving_review_count=1 \
             -f restrictions=null
-        env:
-          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
-
-      - name: Create CODEOWNERS, SECURITY.md, dependabot.yml
-        run: |
-          mkdir -p .github
-
-          echo "* @${GITHUB_ACTOR}" > .github/CODEOWNERS
-
-          cat <<EOF > SECURITY.md
-          # Security Policy
-
-          ## Reporting a Vulnerability
-
-          Please report security issues privately. Do not open public issues.
-          Contact: security@example.com
-          EOF
-
-          cat <<EOF > .github/dependabot.yml
-          version: 2
-          updates:
-            - package-ecosystem: "github-actions"
-              directory: "/"
-              schedule:
-                interval: "daily"
-          EOF
-
-      - name: Rewrite GitHub Actions to SHA-pinned format
-        run: |
-          find .github/workflows -type f -name '*.yml' -print0 | while IFS= read -r -d '' file; do
-            sed -i -E \
-              -e 's|uses: actions/checkout@v[0-9]+|uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683|' \
-              -e 's|uses: actions/upload-artifact@v[0-9]+|uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1|' \
-              -e 's|uses: github/codeql-action@v[0-9]+|uses: github/codeql-action@2b36c681e1e88e5b9f254ec01549d9c2a258c37e|' \
-              "$file"
-          done
-
-      - name: Set workflow token-permissions to read-only by default
-        run: |
-          find .github/workflows -type f -name '*.yml' -print0 | while IFS= read -r -d '' file; do
-            if ! grep -q '^permissions:' "$file"; then
-              sed -i '1i permissions:\n  contents: read\n  actions: read\n  security-events: read' "$file"
-            fi
-          done
-
-      - name: Commit and push changes
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .github/* SECURITY.md
-          git commit -m "chore: apply GitHub Scorecard security rules"
-          git push
