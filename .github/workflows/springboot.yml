@@ -1,5 +1,5 @@
 ---
-name: Spring Boot Install, Security Scan & Healthcheck
+name: Spring Boot Secure Install with Auto Directory & File Creation
 
 on:
   workflow_dispatch:
@@ -11,7 +11,7 @@ permissions:
   statuses: write
 
 jobs:
-  spring-boot-secure-setup:
+  setup-spring-secure:
     runs-on: ubuntu-latest
 
     env:
@@ -23,51 +23,98 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: ✅ 디렉토리 생성
+      - name: ✅ 필수 디렉토리 및 pom.xml 생성 (없을 경우)
         run: |
           mkdir -p .github/workflows/{ci,lint,security,deploy}
-          mkdir -p ./disk-slot/slot-${TIMESTAMP}/{logs,build,run,tmp}
+          mkdir -p backend/src/main/resources
+          mkdir -p disk-slot/slot-${TIMESTAMP}/{logs,build,run,tmp}
+          
+          # 기본 pom.xml 생성 (존재하지 않을 경우)
+          if [ ! -f "backend/pom.xml" ]; then
+            cat > backend/pom.xml <<EOF
+<project xmlns="http://maven.apache.org/POM/4.0.0" 
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.example</groupId>
+  <artifactId>demo</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <packaging>jar</packaging>
+  <properties>
+    <java.version>17</java.version>
+  </properties>
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+      <version>3.2.0</version>
+    </dependency>
+  </dependencies>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>
+EOF
+            echo "✅ 기본 pom.xml 생성됨"
+          fi
 
-      - name: ✅ JDK 및 Maven 설치
+          # application.yml 생성 (없을 경우)
+          if [ ! -f "backend/src/main/resources/application.yml" ]; then
+            cat > backend/src/main/resources/application.yml <<EOF
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+EOF
+            echo "✅ 기본 application.yml 생성됨"
+          fi
+
+      - name: ✅ JDK & Maven 설치
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
           cache: 'maven'
 
-      - name: ✅ application.yml 존재 여부 확인
-        run: |
-          if [ ! -f "./backend/src/main/resources/application.yml" ]; then
-            echo "❌ application.yml 파일이 존재하지 않습니다."
-            exit 1
-          fi
-          echo "✅ application.yml 확인됨"
-
-      - name: ✅ Spring Boot JAR 빌드
+      - name: ✅ Spring Boot 빌드
         run: |
           mvn clean package -DskipTests
           cp target/*.jar ../../disk-slot/slot-${TIMESTAMP}/build/
         working-directory: ./backend
 
-      - name: ✅ Spring Boot 실행 (백그라운드)
+      - name: ✅ 서버 실행 (백그라운드)
         run: |
           nohup java -jar disk-slot/slot-${TIMESTAMP}/build/*.jar \
             > disk-slot/slot-${TIMESTAMP}/run/server.log 2>&1 &
           echo $! > disk-slot/slot-${TIMESTAMP}/run/server.pid
 
-      - name: ✅ Health Check (/actuator/health)
+      - name: ✅ Health Check
         run: |
-          echo "⏳ 서버 Health Check 중..."
           for i in {1..10}; do
             sleep 5
-            if curl -sf http://localhost:8080/actuator/health; then
-              echo "✅ Health OK"
-              exit 0
-            fi
+            curl -sf http://localhost:8080/actuator/health && echo "✅ 서버 정상 작동" && exit 0
           done
-          echo "❌ Health Check 실패" && exit 1
+          echo "❌ 서버 Health Check 실패" && exit 1
 
-      - name: ✅ CodeQL 초기화
+      - name: ✅ 디스크 및 프로세스 상태 기록
+        run: |
+          ps aux > disk-slot/slot-${TIMESTAMP}/logs/process.log
+          df -h > disk-slot/slot-${TIMESTAMP}/logs/disk.log
+
+      - name: ✅ CodeQL 분석
         uses: github/codeql-action/init@v3
         with:
           languages: java
@@ -78,30 +125,21 @@ jobs:
 
       - name: ✅ CodeQL 분석 실행
         uses: github/codeql-action/analyze@v3
-        with:
-          category: security
 
-      - name: ✅ Scorecard CLI 설치 및 실행 (SARIF 포함)
+      - name: ✅ Scorecard CLI 실행
         run: |
           curl -L https://github.com/ossf/scorecard/releases/latest/download/scorecard-linux-amd64 -o scorecard
           chmod +x scorecard
-          ./scorecard --repo=github.com/${{ github.repository }} --format=json \
-            > disk-slot/slot-${TIMESTAMP}/logs/scorecard.json
-          ./scorecard --repo=github.com/${{ github.repository }} --format=sarif \
-            > disk-slot/slot-${TIMESTAMP}/logs/scorecard.sarif
+          ./scorecard --repo=github.com/${{ github.repository }} --format=json > disk-slot/slot-${TIMESTAMP}/logs/scorecard.json
+          ./scorecard --repo=github.com/${{ github.repository }} --format=sarif > disk-slot/slot-${TIMESTAMP}/logs/scorecard.sarif
 
-      - name: ✅ SARIF 업로드 (Scorecard)
+      - name: ✅ Scorecard SARIF 업로드
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: disk-slot/slot-${TIMESTAMP}/logs/scorecard.sarif
 
-      - name: ✅ 디스크 및 프로세스 상태 기록
-        run: |
-          ps aux > disk-slot/slot-${TIMESTAMP}/logs/process.log
-          df -h > disk-slot/slot-${TIMESTAMP}/logs/disk.log
-
-      - name: ✅ 로그 및 보안결과 업로드
+      - name: ✅ 아티팩트 업로드
         uses: actions/upload-artifact@v4
         with:
-          name: spring-boot-secure-logs-${{ env.TIMESTAMP }}
+          name: spring-boot-all-logs-${{ env.TIMESTAMP }}
           path: disk-slot/slot-${TIMESTAMP}/logs
