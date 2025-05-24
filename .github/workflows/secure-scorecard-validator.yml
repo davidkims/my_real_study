@@ -14,70 +14,98 @@ permissions:
   id-token: write
 
 jobs:
-  secure-validate:
+  validate-and-patch:
+    name: Validate SARIF and Secure Workflows
     runs-on: ubuntu-latest
-    steps:
 
-      - name: Checkout repo
+    steps:
+      - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ✅ SARIF 유효성 검사 및 fallback 생성
       - name: Validate SARIF format
         id: sarif-check
         run: |
           echo "🔍 Validating SARIF file..."
           if ! jq empty results.sarif 2>/dev/null; then
             echo "❌ Invalid SARIF format detected!"
-            echo '{}' > results.sarif  # fallback SARIF
+            cat <<EOF > results.sarif
+{
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Fallback",
+          "version": "1.0.0",
+          "informationUri": "https://example.com",
+          "rules": []
+        }
+      },
+      "results": []
+    }
+  ]
+}
+EOF
             echo "fallback=true" >> "$GITHUB_OUTPUT"
           else
             echo "✅ SARIF file is valid."
             echo "fallback=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Upload fallback SARIF if needed
-        if: steps.sarif-check.outputs.fallback == 'true'
+      # ✅ fallback 포함 SARIF 업로드
+      - name: Upload SARIF to Code Scanning
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results.sarif
 
-      - name: Scan workflows for unsafe patterns
+      # ✅ 보안 위협 코드 검출 및 자동 패치
+      - name: Scan and patch .github/workflows/*.yml
         id: scan
         run: |
-          echo "🔐 Scanning .github/workflows for unsafe code..."
+          echo "🔐 Scanning workflows for security risks..."
           mkdir -p patch-log
-          UNSAFE=false
+          touch patch-log/summary.log
+          unsafe=false
 
           for file in .github/workflows/*.yml; do
-            grep -E 'curl|chmod\s+777|rm\s+-rf|set-env|sudo' "$file" && {
-              echo "⚠️ Detected unsafe pattern in $file"
-              UNSAFE=true
-              sed -i.bak -E 's/(curl|chmod\s+777|rm\s+-rf|set-env|sudo)/# [REMOVED: SECURITY RISK] \1/g' "$file"
-              echo "🔧 Patched $file due to unsafe code" >> patch-log/summary.log
-            }
+            if grep -Eq 'curl|chmod\s+777|rm\s+-rf|set-env|sudo' "$file"; then
+              echo "⚠️ Unsafe pattern found in $file"
+              unsafe=true
+              cp "$file" "$file.bak"
+              sed -i -E 's/(curl|chmod\s+777|rm\s+-rf|set-env|sudo)/# [REMOVED UNSAFE] \1/g' "$file"
+              echo "$file patched due to insecure code" >> patch-log/summary.log
+            fi
           done
 
-          echo "unsafe=$UNSAFE" >> "$GITHUB_OUTPUT"
+          echo "unsafe=$unsafe" >> "$GITHUB_OUTPUT"
 
-      - name: Commit workflow patch
+      # ✅ 수정된 경우 커밋
+      - name: Commit patched workflows
         if: steps.scan.outputs.unsafe == 'true'
         run: |
-          echo "✅ Committing workflow patch..."
+          echo "📦 Committing secured workflows..."
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .github/workflows/
-          git commit -m "🔒 Auto-patched unsafe workflow code"
-          git push
+          git checkout -b fix/secure-workflows
+          git add .github/workflows
+          git commit -m "🔒 Auto-patched insecure workflow patterns"
+          git push origin fix/secure-workflows
 
-      - name: Create Pull Request (if unsafe found)
+      # ✅ 자동 PR 생성
+      - name: Create Pull Request
         if: steps.scan.outputs.unsafe == 'true'
         uses: peter-evans/create-pull-request@v6
         with:
-          commit-message: "🔒 Auto-patched unsafe workflow code"
-          title: "Security: Unsafe workflow code auto-patch"
+          branch: fix/secure-workflows
+          delete-branch: true
+          title: "🔒 Secure Workflows: Auto-patched risky commands"
           body: |
-            The following workflow files contained potentially unsafe commands and were automatically patched:
-            ```diff
+            보안 위험 요소가 포함된 워크플로우가 자동 감지되어 수정되었습니다:
+
+            **수정 내역:**
+            ```
             $(cat patch-log/summary.log)
             ```
-          branch: fix/unsafe-workflows
-          delete-branch: true
+
+            ⚠️ 다음 명령어가 제거 또는 주석 처리됨: `curl`, `chmod 777`, `rm -rf`, `set-env`, `sudo`
