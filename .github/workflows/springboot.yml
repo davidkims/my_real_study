@@ -29,11 +29,40 @@ jobs:
           mkdir -p backend/src/main/resources
           mkdir -p disk-slot/slot-${TIMESTAMP}/{logs,build,run,tmp}
 
-      - name: ✅ 서버에서 소스파일 다운로드
+      - name: ✅ 소스 파일 다운로드 (자동 백업 URL 포함)
         run: |
-          curl -sL https://your-server.com/spring/pom.xml -o backend/pom.xml
-          curl -sL https://your-server.com/spring/application.yml -o backend/src/main/resources/application.yml
-          curl -sL https://your-server.com/spring/Application.java -o backend/src/main/java/com/example/Application.java
+          set -e
+
+          # 파일 정의
+          declare -A FILES
+          FILES["backend/pom.xml"]="https://your-primary-url.com/spring/pom.xml https://your-backup-url.com/spring/pom.xml"
+          FILES["backend/src/main/resources/application.yml"]="https://your-primary-url.com/spring/application.yml https://your-backup-url.com/spring/application.yml"
+          FILES["backend/src/main/java/com/example/Application.java"]="https://your-primary-url.com/spring/Application.java https://your-backup-url.com/spring/Application.java"
+
+          for FILE in "${!FILES[@]}"; do
+            URLS=${FILES[$FILE]}
+            SUCCESS=0
+
+            for URL in $URLS; do
+              echo "⬇️ ${FILE} ← ${URL}"
+              curl -sfL "$URL" -o "$FILE" || continue
+
+              # HTML이면 실패 처리
+              if grep -qi '<html' "$FILE"; then
+                echo "⚠️ Invalid HTML content detected in $FILE from $URL"
+                continue
+              fi
+
+              echo "✅ $FILE 다운로드 성공"
+              SUCCESS=1
+              break
+            done
+
+            if [ "$SUCCESS" -ne 1 ]; then
+              echo "❌ $FILE 다운로드 실패 (모든 URL 시도 실패)"
+              exit 1
+            fi
+          done
 
       - name: ✅ JDK & Maven 설치
         uses: actions/setup-java@v4
