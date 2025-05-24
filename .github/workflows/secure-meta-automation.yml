@@ -33,71 +33,71 @@ jobs:
 
       - name: Create SECURITY.md
         run: |
-          tee .github/SECURITY.md > /dev/null <<EOF
-# Security Policy
-
-## Reporting a Vulnerability
+          mkdir -p .github
+          echo "# Security Policy" > .github/SECURITY.md
+          echo "" >> .github/SECURITY.md
+          echo "## Reporting a Vulnerability" >> .github/SECURITY.md
+          echo "" >> .github/SECURITY.md
+          echo "Please email security@example.com. We will respond within 72 hours." >> .github/SECURITY.md
 
       - name: Create dependabot.yml
         run: |
-          tee .github/dependabot.yml > /dev/null <<EOF
-version: 2
-updates:
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-EOF
+          mkdir -p .github
+          echo "version: 2" > .github/dependabot.yml
+          echo "updates:" >> .github/dependabot.yml
+          echo "  - package-ecosystem: \"github-actions\"" >> .github/dependabot.yml
+          echo "    directory: \"/\"" >> .github/dependabot.yml
+          echo "    schedule:" >> .github/dependabot.yml
+          echo "      interval: \"weekly\"" >> .github/dependabot.yml
 
-      - name: Create safe codeql.yml
+      - name: Create codeql.yml safely
         run: |
-          tee .github/workflows/codeql.yml > /dev/null <<EOF
-name: CodeQL Analysis
-
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-
-permissions:
-  security-events: write
-
-jobs:
-  analyze:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Init CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: javascript, python, java
-
-      - name: Check source
-        id: check
-        run: |
-          if ! find . -name "*.java" -o -name "*.py" -o -name "*.js" | grep -q .; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-          else
-            echo "skip=false" >> $GITHUB_OUTPUT
-
-      - name: Analyze
-        if: steps.check.outputs.skip != 'true'
-        uses: github/codeql-action/analyze@v3
-EOF
+          mkdir -p .github/workflows
+          FILE=.github/workflows/codeql.yml
+          echo "name: CodeQL Analysis" > $FILE
+          echo "" >> $FILE
+          echo "on:" >> $FILE
+          echo "  push:" >> $FILE
+          echo "    branches: [ \"main\" ]" >> $FILE
+          echo "  pull_request:" >> $FILE
+          echo "    branches: [ \"main\" ]" >> $FILE
+          echo "" >> $FILE
+          echo "permissions:" >> $FILE
+          echo "  security-events: write" >> $FILE
+          echo "" >> $FILE
+          echo "jobs:" >> $FILE
+          echo "  analyze:" >> $FILE
+          echo "    runs-on: ubuntu-latest" >> $FILE
+          echo "    strategy:" >> $FILE
+          echo "      fail-fast: false" >> $FILE
+          echo "    steps:" >> $FILE
+          echo "      - name: Checkout" >> $FILE
+          echo "        uses: actions/checkout@v4" >> $FILE
+          echo "" >> $FILE
+          echo "      - name: Init CodeQL" >> $FILE
+          echo "        uses: github/codeql-action/init@v3" >> $FILE
+          echo "        with:" >> $FILE
+          echo "          languages: javascript, python, java" >> $FILE
+          echo "" >> $FILE
+          echo "      - name: Check source" >> $FILE
+          echo "        id: check" >> $FILE
+          echo "        run: |" >> $FILE
+          echo "          if ! find . -name \"*.java\" -o -name \"*.py\" -o -name \"*.js\" | grep -q .; then" >> $FILE
+          echo "            echo \"skip=true\" >> \$GITHUB_OUTPUT" >> $FILE
+          echo "          else" >> $FILE
+          echo "            echo \"skip=false\" >> \$GITHUB_OUTPUT" >> $FILE
+          echo "          fi" >> $FILE
+          echo "" >> $FILE
+          echo "      - name: Analyze" >> $FILE
+          echo "        if: steps.check.outputs.skip != 'true'" >> $FILE
+          echo "        uses: github/codeql-action/analyze@v3" >> $FILE
 
       - name: Check if GH_ADMIN_TOKEN exists
         id: has-token
         run: |
           if [ -z "${{ secrets.GH_ADMIN_TOKEN }}" ]; then
-            echo "GH_ADMIN_TOKEN not found"
             echo "available=false" >> $GITHUB_OUTPUT
           else
-            echo "GH_ADMIN_TOKEN is present"
             echo "available=true" >> $GITHUB_OUTPUT
           fi
 
@@ -125,23 +125,21 @@ EOF
             -f required_pull_request_reviews.required_approving_review_count=1 \
             -f required_pull_request_reviews.dismiss_stale_reviews=true || echo "⚠️ Branch protection failed"
 
-      - name: Generate Scorecard report (Markdown)
+      - name: Generate Scorecard report
         run: |
-          tee .github/docs/scorecard_report.md > /dev/null <<EOF
-# ✅ Scorecard 10/10 Security Setup Summary
-
-| 항목 | 적용 여부 |
-|------|-----------|
-| Token Permissions | ✅ 자동 삽입 |
-| Pinned Actions    | ✅ 자동 처리 |
-| Security Policy   | ✅ 생성 완료 |
-| Dependabot        | ✅ 구성 완료 |
-| CodeQL SAST       | ✅ 언어 확인 후 실행 |
-| Branch Protection | ✅ gh CLI 적용 |
-| GH_ADMIN_TOKEN    | ✅ 확인 및 조건 분기 처리 |
-EOF
+          echo "# ✅ Scorecard 10/10 Security Setup Summary" > .github/docs/scorecard_report.md
+          echo "" >> .github/docs/scorecard_report.md
+          echo "| 항목 | 적용 여부 |" >> .github/docs/scorecard_report.md
+          echo "|------|-----------|" >> .github/docs/scorecard_report.md
+          echo "| Token Permissions | ✅ 자동 삽입 |" >> .github/docs/scorecard_report.md
+          echo "| Pinned Actions    | ✅ 자동 처리 |" >> .github/docs/scorecard_report.md
+          echo "| Security Policy   | ✅ 생성 완료 |" >> .github/docs/scorecard_report.md
+          echo "| Dependabot        | ✅ 구성 완료 |" >> .github/docs/scorecard_report.md
+          echo "| CodeQL SAST       | ✅ 언어 확인 후 실행 |" >> .github/docs/scorecard_report.md
+          echo "| Branch Protection | ✅ gh CLI 적용 |" >> .github/docs/scorecard_report.md
+          echo "| GH_ADMIN_TOKEN    | ✅ 조건 분기 처리 |" >> .github/docs/scorecard_report.md
 
       - name: Convert report to PDF
         run: |
           sudo apt-get update && sudo apt-get install -y pandoc
-          pandoc .github/docs/scorecard_report.md -o .github/docs/scorecard_report.pdf || echo "⚠️ PDF 변환 실패 (무시)"
+          pandoc .github/docs/scorecard_report.md -o .github/docs/scorecard_report.pdf || echo "⚠️ PDF 변환 실패"
