@@ -35,7 +35,7 @@ jobs:
           java-version: '17'
           cache: 'maven'
 
-      - name: ✅ Spring Boot application.yml 존재 여부 확인
+      - name: ✅ application.yml 존재 여부 확인
         run: |
           if [ ! -f "./backend/src/main/resources/application.yml" ]; then
             echo "❌ application.yml 파일이 존재하지 않습니다."
@@ -43,7 +43,7 @@ jobs:
           fi
           echo "✅ application.yml 확인됨"
 
-      - name: ✅ Spring Boot JAR 빌드 (pom.xml이 backend 디렉토리에 있는 경우)
+      - name: ✅ Spring Boot JAR 빌드
         run: |
           mvn clean package -DskipTests
           cp target/*.jar ../../disk-slot/slot-${TIMESTAMP}/build/
@@ -55,12 +55,15 @@ jobs:
             > disk-slot/slot-${TIMESTAMP}/run/server.log 2>&1 &
           echo $! > disk-slot/slot-${TIMESTAMP}/run/server.pid
 
-      - name: ✅ Health Check (http://localhost:8080/actuator/health)
+      - name: ✅ Health Check (/actuator/health)
         run: |
           echo "⏳ 서버 Health Check 중..."
           for i in {1..10}; do
             sleep 5
-            curl -sf http://localhost:8080/actuator/health && echo "✅ Health OK" && exit 0
+            if curl -sf http://localhost:8080/actuator/health; then
+              echo "✅ Health OK"
+              exit 0
+            fi
           done
           echo "❌ Health Check 실패" && exit 1
 
@@ -78,17 +81,26 @@ jobs:
         with:
           category: security
 
-      - name: ✅ OpenSSF Scorecard 실행
-        uses: ossf/scorecard-action@v2
+      - name: ✅ Scorecard CLI 설치 및 실행 (SARIF 포함)
+        run: |
+          curl -L https://github.com/ossf/scorecard/releases/latest/download/scorecard-linux-amd64 -o scorecard
+          chmod +x scorecard
+          ./scorecard --repo=github.com/${{ github.repository }} --format=json \
+            > disk-slot/slot-${TIMESTAMP}/logs/scorecard.json
+          ./scorecard --repo=github.com/${{ github.repository }} --format=sarif \
+            > disk-slot/slot-${TIMESTAMP}/logs/scorecard.sarif
+
+      - name: ✅ SARIF 업로드 (Scorecard)
+        uses: github/codeql-action/upload-sarif@v3
         with:
-          results_file: disk-slot/slot-${TIMESTAMP}/logs/scorecard.json
+          sarif_file: disk-slot/slot-${TIMESTAMP}/logs/scorecard.sarif
 
       - name: ✅ 디스크 및 프로세스 상태 기록
         run: |
           ps aux > disk-slot/slot-${TIMESTAMP}/logs/process.log
           df -h > disk-slot/slot-${TIMESTAMP}/logs/disk.log
 
-      - name: ✅ 로그 업로드
+      - name: ✅ 로그 및 보안결과 업로드
         uses: actions/upload-artifact@v4
         with:
           name: spring-boot-secure-logs-${{ env.TIMESTAMP }}
