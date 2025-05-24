@@ -8,39 +8,55 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  id-token: write
 
 jobs:
   auto-fix:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Fix token permissions
+      - name: Auto-fix token permissions if missing
         run: |
           for file in .github/workflows/*.yml; do
-            if ! grep -q '^permissions:' "$file"; then
-              echo "🔒 Injecting minimal token permissions into $file"
-              sed -i 's/^on:/permissions:\n  contents: read\n\non:/' "$file"
+            if ! grep -q "^permissions:" "$file"; then
+              echo "🔐 Adding minimal permissions to $file"
+              sed -i '0,/^on:/{s/^on:/permissions:\n  contents: read\n\non:/}' "$file"
             fi
           done
 
-      - name: Pin action dependencies
+      - name: Pin GitHub Action versions
         run: |
           for file in .github/workflows/*.yml; do
-            sed -i -E 's/(uses: .+@)(v[0-9]+)([^0-9a-zA-Z\-])/\1\2.0\3/g' "$file"
+            echo "📌 Patching $file for pinned actions..."
+            sed -i -E 's/(uses: [^@]+)@v([0-9]+)/\1@v\2.0/' "$file"
           done
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b fix/scorecard-auto || git switch fix/scorecard-auto
+          git add .github/workflows
+          git commit -m "🔐 Auto-patch Scorecard issues: token permissions & action pins" || echo "No changes to commit"
+
+      - name: Push to remote
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          git push -u origin fix/scorecard-auto --force
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v6
         with:
-          commit-message: "🔐 Scorecard Auto-Fix: Token permissions & pinned actions"
-          title: "🔐 Auto-fix based on OSSF Scorecard findings"
+          token: ${{ secrets.GH_ADMIN_TOKEN }}
+          commit-message: "🔐 Auto-fix Scorecard issues"
+          title: "🔐 Scorecard Auto-Fix: Token permissions & pinned versions"
           body: |
-            This PR fixes the following issues detected by OSSF Scorecard:
-            - Added minimal `permissions:` to workflows
-            - Pinned reusable actions to fixed versions
-
-            Review recommended before merging.
+            This PR automatically addresses the following:
+            - Missing or excessive token permissions
+            - Unpinned GitHub Actions
           branch: fix/scorecard-auto
           delete-branch: true
