@@ -1,4 +1,4 @@
-name: 에시컬체크 보안 테스트 자동화
+name: EthicalCheck 보안 점검 자동화
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: ["main"]
   schedule:
-    - cron: '39 2 * * 4'  # 매주 목요일 오전 11:39 (한국시간 기준 UTC+9 → UTC 2:39)
+    - cron: '39 2 * * 4'  # 매주 목요일 오전 11:39 (KST)
   workflow_dispatch:
 
 permissions:
@@ -14,40 +14,67 @@ permissions:
   security-events: write
 
 jobs:
-  ethicalcheck_security_scan:  # job ID는 영어로만 구성 (한글 사용 불가)
-    name: 🔐 EthicalCheck 자동 보안 점검  # 사람이 보는 이름, 한글 및 이모지 가능
+  ethicalcheck_security_scan:
+    name: 🔐 API 보안 점검 및 리포트
     runs-on: ubuntu-latest
 
+    env:
+      OAS_URL: "http://netbanking.apisec.ai:8080/v2/api-docs"  # 비공개 API의 경우 실제 URL로 대체
+      AUTH_HEADER: "Authorization: Bearer ${{ secrets.MY_API_TOKEN }}"
+      EMAIL: "your-email@example.com"
+
     steps:
-      - name: 📦 레포지토리 코드 체크아웃
+      - name: 📦 레포지토리 체크아웃
         uses: actions/checkout@v4
 
-      - name: 📁 디스크 슬롯 및 디렉토리 생성
-        id: make-slot
+      - name: 📁 디스크 슬롯 생성
+        id: slot
         run: |
           TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
           SLOT_DIR="disk-slot/slot-${TIMESTAMP}"
           echo "SLOT_DIR=$SLOT_DIR" >> $GITHUB_ENV
-          mkdir -p "${SLOT_DIR}/logs"
-          mkdir -p "${SLOT_DIR}/reports"
-          echo "📂 디스크 슬롯 디렉토리 생성 완료: ${SLOT_DIR}"
+          mkdir -p "$SLOT_DIR/logs"
+          mkdir -p "$SLOT_DIR/reports"
+          echo "📁 생성된 디렉토리: $SLOT_DIR"
 
-      - name: 🔍 EthicalCheck 자동 보안 점검 실행
+      - name: 🔍 EthicalCheck 보안 테스트 실행
         uses: apisec-inc/ethicalcheck-action@005fac321dd843682b1af6b72f30caaf9952c641
         with:
-          # 🔗 보안 점검 대상 API 명세 (Swagger URL 또는 Postman Collection URL)
-          oas-url: "http://netbanking.apisec.ai:8080/v2/api-docs"
-          # 📧 리포트 전송받을 이메일 주소
-          email: "your-email@example.com"
-          # 🧾 SARIF 리포트 저장 경로 (디스크 슬롯 구조 활용)
+          oas-url: "${{ env.OAS_URL }}"
+          email: "${{ env.EMAIL }}"
           sarif-result-file: "${{ env.SLOT_DIR }}/reports/ethicalcheck-results.sarif"
+        env:
+          HTTP_HEADERS: ${{ env.AUTH_HEADER }}  # 비공개 API용 헤더 포함
 
-      - name: ☁️ GitHub에 SARIF 결과 업로드
+      - name: 📄 SARIF 파일 상태 확인
+        run: |
+          echo "✅ SARIF 파일 확인:"
+          if [[ -s "${{ env.SLOT_DIR }}/reports/ethicalcheck-results.sarif" ]]; then
+            echo "SARIF 파일 존재 및 유효함"
+            cat "${{ env.SLOT_DIR }}/reports/ethicalcheck-results.sarif"
+          else
+            echo "❌ SARIF 파일이 비어 있거나 생성되지 않음"
+          fi
+
+      - name: ☁️ SARIF 업로드 (유효 시)
+        if: ${{ always() }}
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: ${{ env.SLOT_DIR }}/reports/ethicalcheck-results.sarif
+          sarif_file: "${{ env.SLOT_DIR }}/reports/ethicalcheck-results.sarif"
 
-      - name: 🧾 실행 로그 기록
+      - name: 🧾 SARIF → PDF 변환
+        if: ${{ always() }}
         run: |
-          echo "✅ EthicalCheck 테스트 완료 시각: $(date)" > ${{ env.SLOT_DIR }}/logs/ethicalcheck.log
-          ls -al ${{ env.SLOT_DIR }}/reports >> ${{ env.SLOT_DIR }}/logs/ethicalcheck.log
+          sudo apt-get update && sudo apt-get install -y pandoc
+          if [[ -s "${{ env.SLOT_DIR }}/reports/ethicalcheck-results.sarif" ]]; then
+            echo "📄 SARIF PDF 변환 시작"
+            pandoc "${{ env.SLOT_DIR }}/reports/ethicalcheck-results.sarif" -o "${{ env.SLOT_DIR }}/reports/ethicalcheck-report.pdf"
+            echo "✅ PDF 리포트 생성 완료: ethicalcheck-report.pdf"
+          else
+            echo "⚠️ SARIF 파일이 없으므로 PDF 변환 생략"
+          fi
+
+      - name: 📜 로그 저장
+        run: |
+          echo "✅ 실행 완료 시간: $(date)" > "${{ env.SLOT_DIR }}/logs/scan.log"
+          ls -lh "${{ env.SLOT_DIR }}/reports" >> "${{ env.SLOT_DIR }}/logs/scan.log"
