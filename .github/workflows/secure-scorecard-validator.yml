@@ -80,38 +80,24 @@ jobs:
       - name: Generate manual if token is missing
         if: steps.token-check.outputs.available == 'false'
         run: |
-          echo "📘 Creating .github/docs/how_to_enable_scorecard_fix.md"
-          mkdir -p .github/docs
-          tee .github/docs/how_to_enable_scorecard_fix.md > /dev/null <<EOF
-# 🛡️ GitHub Scorecard 자동 수정 활성화 가이드
-
-이 워크플로우는 보안 자동 수정을 위해 \`GH_ADMIN_TOKEN\`이 필요합니다.
-
----
-
-## ✅ 1단계: Personal Access Token (PAT) 생성
-
-1. GitHub 접속: https://github.com/settings/tokens?type=beta
-2. 권한 선택:
-   - **Contents**: Read and write
-   - **Pull requests**: Read and write
-   - **Actions**: Read and write
-   - **Workflows**: Read and write
-   - **Metadata**: Read
-3. 생성 후 복사 (보안상 GitHub는 재확인 불가)
-
----
-
-## ✅ 2단계: Secrets 등록
-
-1. 저장소의 \`Settings → Secrets and variables → Actions\` 접속
-2. "New repository secret" 클릭
-   - Name: \`GH_ADMIN_TOKEN\`
-   - Value: (위에서 복사한 PAT 입력)
-
----
-
-## ✅ 3단계: 워크플로우 재실행
-
-이제 [Actions 탭](../../actions)에서 \`Scorecard Auto-Fix\`를 수동 실행하거나, push 발생 시 자동 실행됩니다.
-EOF
+          echo "# 🛡️ GitHub Scorecard 자동 수정 활성화 가이드" > .github/docs/how_to_enable_scorecard_fix.md
+          echo "" >> .github/docs/how_to_enable_scorecard_fix.md
+          echo "이 워크플로우는 보안 자동 수정을 위해 \`GH_ADMIN_TOKEN\`이 필요합니다." >> .github/docs/how_to_enable_scorecard_fix.md
+          echo "" >> .github/docs/how_to_enable_scorecard_fix.md
+          echo "## ✅ 1단계: Personal Access Token (PAT) 생성" >> .github/docs/how_to_enable_scorecard_fix.md
+          echo "1. GitHub 접속: https://github.com/settings/tokens?type=beta" >> .github/docs/how_to_enable_scorecard_fix.md
+          echo "2. 권한 선택:" >> .github/docs/how_to_enable_scorecard_fix.md
+          echo "   - Contents: Read and write" >> .github/docs/how_to_enable_scorecard_fix.md
+          echo "   - Pull requests: Read and write" >> .github/docs/how_to_enable_scorecard_fix.md
+          echo "   - Actions: Read and write" >> .github/docs/how_to_enable_scorecard_fix.md
+          echo "   - Workflows: Read and write" >> .github/docs/how_to_enable_scorecard_fix.md
+          echo "   - Metadata: Read" >> .github/docs/how_to_enable_scorecard_fix.md
+          echo "" >> .github/docs/how_to_enable_scorecard_fix.md
+          echo "## ✅ 2단계: Secrets 등록" >> .github/docs/how_to_enable_scorecard_fix.md
+          echo "1. 저장소 > Settings → Secrets and variables → Actions 접속" >> .github/docs/how_to_enable_scorecard_fix.md
+          echo "2. New repository secret 클릭" >> .github/docs/how_to_enable_scorecard_fix.md
+          echo "   - Name: \`GH_ADMIN_TOKEN\`" >> .github/docs/how_to_enable_scorecard_fix.md
+          echo "   - Value: (위에서 복사한 PAT 입력)" >> .github/docs/how_to_enable_scorecard_fix.md
+          echo "" >> .github/docs/how_to_enable_scorecard_fix.md
+          echo "## ✅ 3단계: 워크플로우 재실행" >> .github/docs/how_to_enable_scorecard_fix.md
+          echo "이제 Actions 탭에서 \`Scorecard Auto-Fix\` 워크플로우를 실행하세요." >> .github/docs/how_to_enable_scorecard_fix.md
