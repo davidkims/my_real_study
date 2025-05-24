@@ -29,14 +29,14 @@ jobs:
           mkdir -p backend/src/main/resources
           mkdir -p disk-slot/slot-${TIMESTAMP}/{logs,build,run,tmp}
 
-      - name: ✅ 소스 파일 다운로드 (미러 + 백업 URL 포함)
+      - name: ✅ 소스 파일 다운로드 (미러 + 백업 URL)
         run: |
           set -e
 
           declare -A FILES
-          FILES["backend/pom.xml"]="https://raw.githubusercontent.com/davidkims/spring-template-files/main/pom.xml https://raw.githubusercontent.com/spring-projects/spring-petclinic/main/pom.xml"
-          FILES["backend/src/main/resources/application.yml"]="https://raw.githubusercontent.com/davidkims/spring-template-files/main/application.yml https://raw.githubusercontent.com/davidkims/spring-template-files/main/application-backup.yml"
-          FILES["backend/src/main/java/com/example/Application.java"]="https://raw.githubusercontent.com/davidkims/spring-template-files/main/Application.java https://raw.githubusercontent.com/spring-guides/gs-spring-boot/main/complete/src/main/java/hello/Application.java"
+          FILES["backend/pom.xml"]="https://raw.githubusercontent.com/spring-projects/spring-petclinic/main/pom.xml"
+          FILES["backend/src/main/resources/application.yml"]="https://raw.githubusercontent.com/davidkims/spring-boot-template-files/main/application.yml https://raw.githubusercontent.com/spring-guides/gs-spring-boot/main/complete/src/main/resources/application.yml"
+          FILES["backend/src/main/java/com/example/Application.java"]="https://raw.githubusercontent.com/davidkims/spring-boot-template-files/main/Application.java https://raw.githubusercontent.com/spring-guides/gs-spring-boot/main/complete/src/main/java/hello/Application.java"
 
           for FILE in "${!FILES[@]}"; do
             URLS=${FILES[$FILE]}
