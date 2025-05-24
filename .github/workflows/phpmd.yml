@@ -1,76 +1,77 @@
-name: PHPMD & Workflow Monitor
+name: 통합 코드 품질 검사
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
-  schedule:
-    - cron: '19 0 * * 3'
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  phpmd:
-    name: Run PHPMD scanning
+  static-analysis:
+    name: 정적 분석 및 코드 린트
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
-      actions: read
 
     steps:
-      - name: Checkout code
+      - name: ✅ 저장소 코드 체크아웃
         uses: actions/checkout@v4
 
-      - name: Setup PHP
+      - name: 🐘 PHP 도구 설치 (PHPMD, PHPStan, PHP_CodeSniffer)
         uses: shivammathur/setup-php@v2
         with:
-          coverage: none
-          tools: phpmd
+          php-version: '8.1'
+          tools: phpmd, phpstan, phpcs
 
-      - name: Run PHPMD
-        run: phpmd . sarif codesize --reportfile phpmd-results.sarif || echo "PHPMD failed" > error.log
-        continue-on-error: true
-
-      - name: Upload PHPMD SARIF
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: phpmd-results.sarif
-          wait-for-processing: true
-
-  workflow-lint:
-    name: Validate Workflow YAMLs and Email on Error
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install yamllint
+      - name: 📦 Python, Node.js, YAMLLint 설치
         run: |
           sudo apt-get update
-          sudo apt-get install -y yamllint
+          sudo apt-get install -y python3-pip npm yamllint
+          pip3 install flake8
+          npm install -g eslint
 
-      - name: Lint .github/workflows
+      - name: 📂 logs 디렉토리 생성
+        run: mkdir -p logs
+
+      - name: 📄 PHP 코드 분석 - PHPMD
         run: |
-          mkdir -p logs
-          yamllint .github/workflows || echo "Workflow YAML lint failed" > logs/yaml-error.log
+          echo "▶ PHPMD 실행 중..."
+          phpmd . text codesize,unusedcode,naming || echo "❌ PHPMD 오류 발생" >> logs/phpmd.log
 
-      - name: Send email if YAML error found
-        if: ${{ failure() || steps.lint.outputs.status == 'failure' }}
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          username: kwonny1302@gmail.com
-          password: ${{ secrets.GMAIL_APP_PASSWORD }}
-          subject: GitHub Workflow YAML Error Detected!
-          to: kwonny1302@gmail.com
-          from: GitHub PHPMD Monitor <kwonny1302@gmail.com>
-          body: |
-            YAML 구문 오류 또는 PHPMD 분석 오류가 감지되었습니다.
-            자세한 사항은 워크플로 로그를 확인하십시오.
-          attachments: logs/yaml-error.log
+      - name: 📄 PHP 코드 분석 - PHPStan
+        run: |
+          echo "▶ PHPStan 실행 중..."
+          phpstan analyse --level=max . || echo "❌ PHPStan 오류 발생" >> logs/phpstan.log
+
+      - name: 📄 PHP 코드 분석 - PHP_CodeSniffer
+        run: |
+          echo "▶ PHPCS 실행 중..."
+          phpcs . || echo "❌ PHPCS 오류 발생" >> logs/phpcs.log
+
+      - name: 🐍 Python 코드 분석 - flake8
+        run: |
+          echo "▶ flake8 실행 중..."
+          flake8 . || echo "❌ flake8 오류 발생" >> logs/flake8.log
+
+      - name: 🔧 JavaScript 코드 분석 - ESLint
+        run: |
+          echo "▶ ESLint 실행 중..."
+          eslint . --ext .js || echo "❌ ESLint 오류 발생" >> logs/eslint.log
+
+      - name: ⚙ YAML 문법 검사 - yamllint
+        run: |
+          echo "▶ yamllint 실행 중..."
+          yamllint .github/workflows || echo "❌ yamllint 오류 발생" >> logs/yamllint.log
+
+      - name: 📢 결과 출력 (한국어)
+        run: |
+          echo ""
+          echo "🧪 코드 품질 검사 요약:"
+          echo "-------------------------"
+          for file in logs/*.log; do
+            echo "📄 결과 파일: $file"
+            cat "$file"
+            echo ""
+          done
