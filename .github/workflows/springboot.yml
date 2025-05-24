@@ -1,0 +1,61 @@
+---
+name: Spring Boot Install & Server Run
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  spring-boot-setup:
+    runs-on: ubuntu-latest
+
+    env:
+      TIMESTAMP: ${{ github.run_id }}-${{ github.run_number }}
+
+    steps:
+      - name: ✅ 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: ✅ 필수 디렉토리 생성 (.github/workflows 포함)
+        run: |
+          mkdir -p .github/workflows/{ci,lint,security,deploy}
+          mkdir -p ./disk-slot/slot-${TIMESTAMP}/{logs,build,run,tmp}
+
+      - name: ✅ JDK 17 설치 (Spring Boot 3.x 호환)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: ✅ Maven 설치
+        uses: s4u/setup-maven-action@v1
+        with:
+          maven-version: '3.9.6'
+
+      - name: ✅ Spring Boot JAR 빌드
+        run: |
+          echo "📦 빌드 시작..."
+          mvn clean package -DskipTests
+          cp target/*.jar disk-slot/slot-${TIMESTAMP}/build/
+          echo "✅ 빌드 완료"
+
+      - name: ✅ Spring Boot 실행 (백그라운드)
+        run: |
+          echo "🚀 서버 실행 중..."
+          nohup java -jar disk-slot/slot-${TIMESTAMP}/build/*.jar \
+            > disk-slot/slot-${TIMESTAMP}/run/server.log 2>&1 &
+          echo $! > disk-slot/slot-${TIMESTAMP}/run/server.pid
+
+      - name: ✅ 프로세스, 디스크 상태 기록
+        run: |
+          ps aux > disk-slot/slot-${TIMESTAMP}/logs/process.log
+          df -h > disk-slot/slot-${TIMESTAMP}/logs/disk.log
+          echo "📄 상태 로그 저장 완료"
+
+      - name: ✅ 아티팩트 업로드 (선택)
+        uses: actions/upload-artifact@v4
+        with:
+          name: spring-boot-logs-${{ env.TIMESTAMP }}
+          path: disk-slot/slot-${TIMESTAMP}/logs
