@@ -1,0 +1,76 @@
+name: PHPMD & Workflow Monitor
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    - cron: '19 0 * * 3'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phpmd:
+    name: Run PHPMD scanning
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          coverage: none
+          tools: phpmd
+
+      - name: Run PHPMD
+        run: phpmd . sarif codesize --reportfile phpmd-results.sarif || echo "PHPMD failed" > error.log
+        continue-on-error: true
+
+      - name: Upload PHPMD SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: phpmd-results.sarif
+          wait-for-processing: true
+
+  workflow-lint:
+    name: Validate Workflow YAMLs and Email on Error
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install yamllint
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y yamllint
+
+      - name: Lint .github/workflows
+        run: |
+          mkdir -p logs
+          yamllint .github/workflows || echo "Workflow YAML lint failed" > logs/yaml-error.log
+
+      - name: Send email if YAML error found
+        if: ${{ failure() || steps.lint.outputs.status == 'failure' }}
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: kwonny1302@gmail.com
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: GitHub Workflow YAML Error Detected!
+          to: kwonny1302@gmail.com
+          from: GitHub PHPMD Monitor <kwonny1302@gmail.com>
+          body: |
+            YAML 구문 오류 또는 PHPMD 분석 오류가 감지되었습니다.
+            자세한 사항은 워크플로 로그를 확인하십시오.
+          attachments: logs/yaml-error.log
