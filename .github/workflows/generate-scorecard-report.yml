@@ -1,4 +1,4 @@
-name: Fix upload-artifact@v3 to @v4.3.1
+name: Secure Fix & Scorecard Report
 
 on:
   workflow_dispatch:
@@ -6,44 +6,97 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  id-token: write
+  actions: write
 
 jobs:
-  fix-artifact:
+  fix-and-report:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4.2.2
 
-      - name: Create new branch
+      - name: Check if GH_ADMIN_TOKEN is available
+        id: token-check
+        run: |
+          if [ -z "${{ secrets.GH_ADMIN_TOKEN }}" ]; then
+            echo "GH_ADMIN_TOKEN not available."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "GH_ADMIN_TOKEN is present."
+            echo "skip=false" >> $GITHUB_OUTPUT
+
+      - name: Fix upload-artifact@v3 to @v4.3.1
+        run: |
+          FILES=$(grep -rl 'actions/upload-artifact@v3' .github/workflows || true)
+          if [[ -n "$FILES" ]]; then
+            echo "🔧 Found old actions:"
+            echo "$FILES"
+            sed -i 's|actions/upload-artifact@v3|actions/upload-artifact@v4.3.1|g' $FILES
+          else
+            echo "✅ No @v3 found."
+          fi
+
+      - name: Commit and push fix branch
+        if: steps.token-check.outputs.skip == 'false'
+        env:
+          GH_ADMIN_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b fix/upload-artifact-v4
-
-      - name: Search and fix upload-artifact@v3
-        run: |
-          FOUND=$(grep -rl 'actions/upload-artifact@v3' .github/workflows || true)
-          if [[ -z "$FOUND" ]]; then
-            echo "✅ No usage of @v3 found."
-            exit 0
-          fi
-
-          echo "🔧 Found usage in: $FOUND"
-          sed -i 's|actions/upload-artifact@v3|actions/upload-artifact@v4.3.1|g' $FOUND
-
-      - name: Commit changes
-        run: |
           git add .github/workflows
-          git commit -m "fix: upgrade upload-artifact to v4.3.1"
+          git commit -m "fix: upgrade upload-artifact to v4.3.1" || echo "No changes"
+          git remote set-url origin https://x-access-token:${GH_ADMIN_TOKEN}@github.com/${{ github.repository }}
           git push origin fix/upload-artifact-v4 --force
 
-      - name: Create Pull Request
+      - name: Create PR
+        if: steps.token-check.outputs.skip == 'false'
         uses: peter-evans/create-pull-request@v5
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_ADMIN_TOKEN }}
           commit-message: "fix: upgrade upload-artifact to v4.3.1"
           branch: fix/upload-artifact-v4
-          title: "⬆️ Migrate upload-artifact@v3 → @v4.3.1"
+          title: "⬆️ Fix upload-artifact@v3 → @v4.3.1"
           body: |
-            This PR automatically replaces all instances of `actions/upload-artifact@v3` with the latest stable `@v4.3.1` to resolve the runner download error.
+            This PR upgrades all references of `actions/upload-artifact@v3` to `@v4.3.1`.
+
+      - name: Auto-approve Scorecard PRs
+        if: steps.token-check.outputs.skip == 'false'
+        run: |
+          gh pr list --author ossf-scorecard --state open --json number | jq '.[].number' | while read pr; do
+            echo "✅ Auto-approving PR #$pr"
+            gh pr review $pr --approve || true
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+
+      - name: Generate .github/docs
+        run: mkdir -p .github/docs
+
+      - name: Generate Scorecard Markdown
+        run: |
+          cat <<EOF > .github/docs/scorecard_report.md
+# Scorecard Security Fix Report
+
+      - name: Install Pandoc & TeX Live
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc texlive texlive-latex-extra texlive-xetex
+
+      - name: Convert report to PDF
+        run: |
+          pandoc .github/docs/scorecard_report.md -o .github/docs/scorecard_report.pdf
+
+      - name: Convert to HTML
+        run: |
+          pandoc .github/docs/scorecard_report.md -o .github/docs/scorecard_report.html
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v2.0.0
+        with:
+          path: .github/docs
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v2.0.5
