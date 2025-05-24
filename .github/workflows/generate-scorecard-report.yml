@@ -1,49 +1,49 @@
-name: Scorecard Report to Pages
+name: Fix upload-artifact@v3 to @v4.3.1
 
 on:
   workflow_dispatch:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
+  pull-requests: write
 
 jobs:
-  scorecard-report:
+  fix-artifact:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source
+      - name: Checkout
         uses: actions/checkout@v4.2.2
 
-      - name: Generate .github/docs directory
-        run: mkdir -p .github/docs
-
-      - name: Create Markdown report (safe ASCII only)
+      - name: Create new branch
         run: |
-          REPORT=.github/docs/scorecard_report.md
-          cat <<EOF > $REPORT
-# Scorecard 10/10 Security Setup Summary
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b fix/upload-artifact-v4
 
-      - name: Install PDF toolchain
+      - name: Search and fix upload-artifact@v3
         run: |
-          sudo apt-get update
-          sudo apt-get install -y pandoc texlive texlive-latex-extra texlive-xetex
+          FOUND=$(grep -rl 'actions/upload-artifact@v3' .github/workflows || true)
+          if [[ -z "$FOUND" ]]; then
+            echo "✅ No usage of @v3 found."
+            exit 0
+          fi
 
-      - name: Convert to PDF
+          echo "🔧 Found usage in: $FOUND"
+          sed -i 's|actions/upload-artifact@v3|actions/upload-artifact@v4.3.1|g' $FOUND
+
+      - name: Commit changes
         run: |
-          pandoc .github/docs/scorecard_report.md -o .github/docs/scorecard_report.pdf
+          git add .github/workflows
+          git commit -m "fix: upgrade upload-artifact to v4.3.1"
+          git push origin fix/upload-artifact-v4 --force
 
-      - name: Convert to HTML
-        run: |
-          pandoc .github/docs/scorecard_report.md -o .github/docs/scorecard_report.html
-
-      # ✅ We DO NOT use actions/upload-artifact here to prevent v3 errors
-
-      - name: Upload to GitHub Pages
-        uses: actions/upload-pages-artifact@v2.0.0
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
         with:
-          path: .github/docs
-
-      - name: Deploy Pages
-        uses: actions/deploy-pages@v2.0.5
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "fix: upgrade upload-artifact to v4.3.1"
+          branch: fix/upload-artifact-v4
+          title: "⬆️ Migrate upload-artifact@v3 → @v4.3.1"
+          body: |
+            This PR automatically replaces all instances of `actions/upload-artifact@v3` with the latest stable `@v4.3.1` to resolve the runner download error.
