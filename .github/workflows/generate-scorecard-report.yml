@@ -1,4 +1,4 @@
-name: Generate and Deploy Scorecard Report
+name: Scorecard Report to Pages
 
 on:
   workflow_dispatch:
@@ -9,60 +9,41 @@ permissions:
   id-token: write
 
 jobs:
-  build-and-deploy:
+  scorecard-report:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout source
         uses: actions/checkout@v4.2.2
 
-      - name: Prepare .github/docs directory
+      - name: Generate .github/docs directory
         run: mkdir -p .github/docs
 
-      - name: Generate Markdown report (ASCII only)
+      - name: Create Markdown report (safe ASCII only)
         run: |
           REPORT=.github/docs/scorecard_report.md
-          echo "# Scorecard 10/10 Security Setup Summary" > $REPORT
-          echo "" >> $REPORT
-          echo "| 항목 | 적용 여부 |" >> $REPORT
-          echo "|------|-----------|" >> $REPORT
-          echo "| Token Permissions | YES (자동 삽입) |" >> $REPORT
-          echo "| Pinned Actions    | YES (버전 고정) |" >> $REPORT
-          echo "| Security Policy   | YES (.md 생성됨) |" >> $REPORT
-          echo "| Dependabot        | YES (자동 갱신) |" >> $REPORT
-          echo "| CodeQL SAST       | YES (언어 조건 자동 실행) |" >> $REPORT
-          echo "| Branch Protection | YES (gh CLI 적용) |" >> $REPORT
-          echo "| GH_ADMIN_TOKEN    | YES (조건 처리) |" >> $REPORT
+          cat <<EOF > $REPORT
+# Scorecard 10/10 Security Setup Summary
 
-      - name: Install Pandoc and TeX Live
+      - name: Install PDF toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y pandoc texlive texlive-latex-extra texlive-xetex
 
-      - name: Convert Markdown to PDF
+      - name: Convert to PDF
         run: |
           pandoc .github/docs/scorecard_report.md -o .github/docs/scorecard_report.pdf
 
-      - name: Convert Markdown to HTML
+      - name: Convert to HTML
         run: |
           pandoc .github/docs/scorecard_report.md -o .github/docs/scorecard_report.html
 
-      - name: Upload PDF as artifact
-        uses: actions/upload-artifact@v4.3.1
-        with:
-          name: scorecard-report
-          path: .github/docs/scorecard_report.pdf
+      # ✅ We DO NOT use actions/upload-artifact here to prevent v3 errors
 
-      - name: Upload HTML as artifact
-        uses: actions/upload-artifact@v4.3.1
-        with:
-          name: scorecard-html
-          path: .github/docs/scorecard_report.html
-
-      - name: Upload for GitHub Pages
+      - name: Upload to GitHub Pages
         uses: actions/upload-pages-artifact@v2.0.0
         with:
           path: .github/docs
 
-      - name: Deploy to GitHub Pages
+      - name: Deploy Pages
         uses: actions/deploy-pages@v2.0.5
