@@ -12,10 +12,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Ensure gh CLI installed
-        uses: cli/gh-action@v2
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Apply branch protection with required reviews
+      - name: Install GitHub CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gh
+
+      - name: Authenticate gh CLI
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          echo $GH_TOKEN | gh auth login --with-token
+          gh auth status
+
+      - name: Apply branch protection
         env:
           GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
         run: |
@@ -23,9 +35,9 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -f required_status_checks.strict=true \
             -f enforce_admins=true \
-            -f required_pull_request_reviews.dismiss_stale_reviews=true \
             -f required_pull_request_reviews.required_approving_review_count=1 \
+            -f required_pull_request_reviews.dismiss_stale_reviews=true \
             -f required_pull_request_reviews.require_code_owner_reviews=true || echo "⚠️ 보호 실패"
 
-      - name: Log success
-        run: echo "✅ 'main' 브랜치에 코드 리뷰 보호 정책 적용 완료"
+      - name: Done
+        run: echo "✅ 브랜치 보호 완료"
