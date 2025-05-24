@@ -47,13 +47,19 @@ jobs:
         run: |
           pandoc .github/docs/scorecard_report.md -o .github/docs/scorecard_report.html
 
-      - name: Upload PDF as Artifact
+      - name: Upload PDF as artifact
         uses: actions/upload-artifact@v4.3.1
         with:
           name: scorecard-report
           path: .github/docs/scorecard_report.pdf
 
-      - name: Upload Pages Artifact
+      - name: Upload HTML as artifact
+        uses: actions/upload-artifact@v4.3.1
+        with:
+          name: scorecard-html
+          path: .github/docs/scorecard_report.html
+
+      - name: Upload for GitHub Pages
         uses: actions/upload-pages-artifact@v2.0.0
         with:
           path: .github/docs
