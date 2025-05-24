@@ -1,109 +1,46 @@
-name: Secure Scorecard Validator
+name: Scorecard Auto-Fix
 
 on:
-  push:
-    paths:
-      - ".github/workflows/**"
-      - "results.sarif"
   workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * 1'
 
 permissions:
   contents: write
   pull-requests: write
-  security-events: write
-  id-token: write
 
 jobs:
-  validate-and-patch:
-    name: Validate SARIF and Secure Workflows
+  auto-fix:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # ✅ SARIF 유효성 검사 및 fallback 생성
-      - name: Validate SARIF format
-        id: sarif-check
+      - name: Fix token permissions
         run: |
-          echo "🔍 Validating SARIF file..."
-          if ! jq empty results.sarif 2>/dev/null; then
-            echo "❌ Invalid SARIF format detected!"
-            echo '{
-              "version": "2.1.0",
-              "runs": [
-                {
-                  "tool": {
-                    "driver": {
-                      "name": "Fallback",
-                      "version": "1.0.0",
-                      "informationUri": "https://example.com",
-                      "rules": []
-                    }
-                  },
-                  "results": []
-                }
-              ]
-            }' > results.sarif
-            echo "fallback=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "✅ SARIF file is valid."
-            echo "fallback=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      # ✅ fallback 포함 SARIF 업로드
-      - name: Upload SARIF to Code Scanning
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: results.sarif
-
-      # ✅ 보안 위협 코드 검출 및 자동 패치
-      - name: Scan and patch .github/workflows/*.yml
-        id: scan
-        run: |
-          echo "🔐 Scanning workflows for security risks..."
-          mkdir -p patch-log
-          touch patch-log/summary.log
-          unsafe=false
-
           for file in .github/workflows/*.yml; do
-            if grep -Eq 'curl|chmod\s+777|rm\s+-rf|set-env|sudo' "$file"; then
-              echo "⚠️ Unsafe pattern found in $file"
-              unsafe=true
-              cp "$file" "$file.bak"
-              sed -i -E 's/(curl|chmod\s+777|rm\s+-rf|set-env|sudo)/# [REMOVED UNSAFE] \1/g' "$file"
-              echo "$file patched due to insecure code" >> patch-log/summary.log
+            if ! grep -q '^permissions:' "$file"; then
+              echo "🔒 Injecting minimal token permissions into $file"
+              sed -i 's/^on:/permissions:\n  contents: read\n\non:/' "$file"
             fi
           done
 
-          echo "unsafe=$unsafe" >> "$GITHUB_OUTPUT"
-
-      # ✅ 수정된 경우 커밋
-      - name: Commit patched workflows
-        if: steps.scan.outputs.unsafe == 'true'
+      - name: Pin action dependencies
         run: |
-          echo "📦 Committing secured workflows..."
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -b fix/secure-workflows
-          git add .github/workflows
-          git commit -m "🔒 Auto-patched insecure workflow patterns"
-          git push origin fix/secure-workflows
+          for file in .github/workflows/*.yml; do
+            sed -i -E 's/(uses: .+@)(v[0-9]+)([^0-9a-zA-Z\-])/\1\2.0\3/g' "$file"
+          done
 
-      # ✅ 자동 PR 생성
       - name: Create Pull Request
-        if: steps.scan.outputs.unsafe == 'true'
         uses: peter-evans/create-pull-request@v6
         with:
-          branch: fix/secure-workflows
-          delete-branch: true
-          title: "🔒 Secure Workflows: Auto-patched risky commands"
+          commit-message: "🔐 Scorecard Auto-Fix: Token permissions & pinned actions"
+          title: "🔐 Auto-fix based on OSSF Scorecard findings"
           body: |
-            보안 위험 요소가 포함된 워크플로우가 자동 감지되어 수정되었습니다:
+            This PR fixes the following issues detected by OSSF Scorecard:
+            - Added minimal `permissions:` to workflows
+            - Pinned reusable actions to fixed versions
 
-            **수정 내역:**
-            ```
-            $(cat patch-log/summary.log)
-            ```
-
-            ⚠️ 다음 명령어가 제거 또는 주석 처리됨: `curl`, `chmod 777`, `rm -rf`, `set-env`, `sudo`
+            Review recommended before merging.
+          branch: fix/scorecard-auto
+          delete-branch: true
