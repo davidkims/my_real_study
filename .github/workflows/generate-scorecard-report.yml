@@ -21,10 +21,8 @@ jobs:
         id: token_check
         run: |
           if [ -z "${{ secrets.GH_ADMIN_TOKEN }}" ]; then
-            echo "GH_ADMIN_TOKEN not found. Skipping push."
             echo "skip_push=true" >> $GITHUB_OUTPUT
           else
-            echo "GH_ADMIN_TOKEN available."
             echo "skip_push=false" >> $GITHUB_OUTPUT
           fi
 
@@ -34,8 +32,6 @@ jobs:
           if [[ -n "$FILES" ]]; then
             echo "🔧 Fixing upload-artifact@v3..."
             sed -i 's|actions/upload-artifact@v3|actions/upload-artifact@v4.3.1|g' $FILES
-          else
-            echo "✅ No outdated upload-artifact found."
           fi
 
       - name: Auto-fix missing permissions fields
@@ -95,10 +91,10 @@ jobs:
 
 | 항목 | 적용 여부 |
 |------|-----------|
-| upload-artifact@v3 제거 | ✅ |
-| permissions 필드 누락 수정 | ✅ |
-| Scorecard PR 자동 승인 | ✅ |
-| GitHub Pages 보고서 배포 | ✅ |
+| upload-artifact@v3 제거 | YES |
+| permissions 필드 누락 수정 | YES |
+| Scorecard PR 자동 승인 | YES |
+| GitHub Pages 보고서 배포 | YES |
 EOF
 
       - name: Install PDF toolchain
