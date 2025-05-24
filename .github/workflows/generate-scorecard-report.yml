@@ -31,10 +31,10 @@ jobs:
           echo "| Branch Protection | ✅ gh API 적용 |" >> .github/docs/scorecard_report.md
           echo "| GH_ADMIN_TOKEN    | ✅ 조건 분기 처리 |" >> .github/docs/scorecard_report.md
 
-      - name: Install Pandoc & TeX Live
+      - name: Install Pandoc + Full TeX Live (for PDF)
         run: |
           sudo apt-get update
-          sudo apt-get install -y pandoc texlive-latex-base
+          sudo apt-get install -y pandoc texlive texlive-latex-extra texlive-xetex
 
       - name: Convert Markdown to PDF
         run: |
