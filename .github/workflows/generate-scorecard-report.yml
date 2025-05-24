@@ -13,13 +13,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
 
       - name: Prepare .github/docs directory
         run: mkdir -p .github/docs
 
-      - name: Generate Markdown report (no emojis)
+      - name: Generate Markdown report (ASCII only)
         run: |
           REPORT=.github/docs/scorecard_report.md
           echo "# Scorecard 10/10 Security Setup Summary" > $REPORT
@@ -34,7 +34,7 @@ jobs:
           echo "| Branch Protection | YES (gh CLI 적용) |" >> $REPORT
           echo "| GH_ADMIN_TOKEN    | YES (조건 처리) |" >> $REPORT
 
-      - name: Install Pandoc + TeX Live
+      - name: Install Pandoc and TeX Live
         run: |
           sudo apt-get update
           sudo apt-get install -y pandoc texlive texlive-latex-extra texlive-xetex
@@ -47,10 +47,16 @@ jobs:
         run: |
           pandoc .github/docs/scorecard_report.md -o .github/docs/scorecard_report.html
 
-      - name: Upload pages artifact
-        uses: actions/upload-pages-artifact@v2
+      - name: Upload PDF as Artifact
+        uses: actions/upload-artifact@v4.3.1
+        with:
+          name: scorecard-report
+          path: .github/docs/scorecard_report.pdf
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v2.0.0
         with:
           path: .github/docs
 
       - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v2
+        uses: actions/deploy-pages@v2.0.5
