@@ -12,96 +12,106 @@ permissions:
 
 jobs:
   auto-fix:
+    name: Detect & Fix Scorecard Violations
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Auto-fix token permissions if missing
+      - name: Ensure .github/docs directory
+        run: mkdir -p .github/docs
+
+      - name: Add permissions if missing
         run: |
           for file in .github/workflows/*.yml; do
             if ! grep -q "^permissions:" "$file"; then
-              echo "🔐 Adding minimal permissions to $file"
+              echo "🔐 Adding 'permissions: contents: read' to $file"
               sed -i '0,/^on:/{s/^on:/permissions:\n  contents: read\n\non:/}' "$file"
             fi
           done
 
-      - name: Pin GitHub Action versions
+      - name: Pin action versions
         run: |
           for file in .github/workflows/*.yml; do
             echo "📌 Patching $file for pinned actions..."
-            sed -i -E 's/(uses: [^@]+)@v([0-9]+)/\1@v\2.0/' "$file"
+            sed -i -E 's/(uses: [^@]+)@v([0-9]+)([^0-9a-zA-Z-]|$)/\1@v\2.0\3/g' "$file"
           done
 
-      - name: Commit changes
+      - name: Commit fixes (if any)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b fix/scorecard-auto || git switch fix/scorecard-auto
-          git add .github/workflows
-          git commit -m "🔐 Auto-patch Scorecard issues: token permissions & action pins" || echo "No changes to commit"
+          git add .github/workflows || true
+          git diff --cached --quiet || git commit -m "🔐 Auto-fix: token permissions & pinned actions"
 
-      - name: Check for GH_ADMIN_TOKEN
+      - name: Check if GH_ADMIN_TOKEN is available
         id: token-check
         run: |
           if [ -z "${{ secrets.GH_ADMIN_TOKEN }}" ]; then
-            echo "GH_ADMIN_TOKEN is not set. Skipping push/PR."
+            echo "GH_ADMIN_TOKEN is NOT available."
             echo "available=false" >> $GITHUB_OUTPUT
           else
+            echo "GH_ADMIN_TOKEN is set."
             echo "available=true" >> $GITHUB_OUTPUT
-          fi
 
-      - name: Push to remote (if token is available)
+      - name: Push to GitHub (only if token is available)
         if: steps.token-check.outputs.available == 'true'
         env:
           GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
         run: |
           git push -u origin fix/scorecard-auto --force
 
-      - name: Create Pull Request (if token is available)
+      - name: Create PR (only if token is available)
         if: steps.token-check.outputs.available == 'true'
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GH_ADMIN_TOKEN }}
           commit-message: "🔐 Auto-fix Scorecard issues"
-          title: "🔐 Scorecard Auto-Fix: Token permissions & pinned versions"
+          title: "🔐 Scorecard Auto-Fix: permissions & pinned actions"
           body: |
-            This PR automatically addresses the following:
-            - Missing or excessive token permissions
-            - Unpinned GitHub Actions
+            This PR automatically fixes:
+            - Missing or insecure token permissions
+            - Unpinned GitHub Action versions
           branch: fix/scorecard-auto
           delete-branch: true
 
-      - name: Generate GitHub Manual (if token not available)
+      - name: Generate manual if token is missing
         if: steps.token-check.outputs.available == 'false'
         run: |
-          mkdir -p .github/docs
           cat <<EOF > .github/docs/how_to_enable_scorecard_fix.md
 # 🛡️ GitHub Scorecard 자동 수정 활성화 가이드
 
-이 워크플로우는 보안 자동 수정을 위해 `GH_ADMIN_TOKEN`이 필요합니다.
+이 워크플로우는 보안 자동 수정을 위해 \`GH_ADMIN_TOKEN\`이 필요합니다.
 
-## ✅ 1단계: GitHub Token 생성
+---
 
-1. [GitHub PAT 생성 링크](https://github.com/settings/tokens?type=beta) 접속
-2. 다음 권한을 체크:
+## ✅ 1단계: Personal Access Token (PAT) 생성
+
+1. GitHub 접속: https://github.com/settings/tokens?type=beta
+2. 권한 선택:
    - **Contents**: Read and write
    - **Pull requests**: Read and write
    - **Actions**: Read and write
-   - **Metadata**: Read
    - **Workflows**: Read and write
-3. 생성 후 복사 (다시 확인 불가)
+   - **Metadata**: Read
+3. 생성 후 복사 (보안상 GitHub는 재확인 불가)
+
+---
 
 ## ✅ 2단계: Secrets 등록
 
-1. 저장소 접속 → `Settings > Secrets and variables > Actions`
-2. `New repository secret` 클릭
-   - Name: `GH_ADMIN_TOKEN`
-   - Value: (위에서 복사한 PAT)
+1. 저장소의 \`Settings → Secrets and variables → Actions\` 접속
+2. "New repository secret" 클릭
+   - Name: \`GH_ADMIN_TOKEN\`
+   - Value: (위에서 복사한 PAT 입력)
+
+---
 
 ## ✅ 3단계: 워크플로우 재실행
 
-이제 다시 [Actions 탭](../../actions)에서 `Scorecard Auto-Fix` 워크플로우를 실행하세요.
+이제 [Actions 탭](../../actions)에서 \`Scorecard Auto-Fix\`를 수동 실행하거나, push 발생 시 자동 실행됩니다.
 EOF
-          echo "📘 Guide created at .github/docs/how_to_enable_scorecard_fix.md"
+
+          echo "📘 사용 설명서 생성됨 → .github/docs/how_to_enable_scorecard_fix.md"
