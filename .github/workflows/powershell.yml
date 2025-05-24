@@ -1,0 +1,51 @@
+name: PSScriptAnalyzer with Disk Slot
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: '19 12 * * 4'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: Analyze PowerShell Scripts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set timestamp and create disk slot directory
+        id: slot
+        run: |
+          TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
+          SLOT_DIR="disk-slot/slot-${TIMESTAMP}"
+          echo "SLOT_DIR=$SLOT_DIR" >> $GITHUB_ENV
+          mkdir -p "$SLOT_DIR/logs"
+          mkdir -p "$SLOT_DIR/reports"
+          echo "📁 Created slot directory: $SLOT_DIR"
+
+      - name: Run PSScriptAnalyzer
+        uses: microsoft/psscriptanalyzer-action@6b2948b1944407914a58661c49941824d149734f
+        with:
+          path: ./
+          recurse: true
+          includeRule: '"PSAvoidGlobalAliases", "PSAvoidUsingConvertToSecureStringWithPlainText"'
+          output: ${{ env.SLOT_DIR }}/reports/results.sarif
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ env.SLOT_DIR }}/reports/results.sarif
+
+      - name: Save analyzer logs
+        run: |
+          echo "📜 Analyzer run completed at $(date)" > ${{ env.SLOT_DIR }}/logs/analyzer.log
+          ls -al ${{ env.SLOT_DIR }}/reports >> ${{ env.SLOT_DIR }}/logs/analyzer.log
