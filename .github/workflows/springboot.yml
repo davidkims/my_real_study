@@ -17,22 +17,20 @@ jobs:
     steps:
       - name: ✅ 저장소 체크아웃
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: ✅ 필수 디렉토리 생성 (.github/workflows 포함)
+      - name: ✅ 디렉토리 생성 (.github/workflows 포함)
         run: |
           mkdir -p .github/workflows/{ci,lint,security,deploy}
           mkdir -p ./disk-slot/slot-${TIMESTAMP}/{logs,build,run,tmp}
 
-      - name: ✅ JDK 17 설치 (Spring Boot 3.x 호환)
+      - name: ✅ JDK 및 Maven 설치 (공식 지원)
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
-
-      - name: ✅ Maven 설치
-        uses: s4u/setup-maven-action@v1
-        with:
-          maven-version: '3.9.6'
+          cache: 'maven'
 
       - name: ✅ Spring Boot JAR 빌드
         run: |
@@ -48,13 +46,13 @@ jobs:
             > disk-slot/slot-${TIMESTAMP}/run/server.log 2>&1 &
           echo $! > disk-slot/slot-${TIMESTAMP}/run/server.pid
 
-      - name: ✅ 프로세스, 디스크 상태 기록
+      - name: ✅ 디스크 및 프로세스 상태 기록
         run: |
           ps aux > disk-slot/slot-${TIMESTAMP}/logs/process.log
           df -h > disk-slot/slot-${TIMESTAMP}/logs/disk.log
           echo "📄 상태 로그 저장 완료"
 
-      - name: ✅ 아티팩트 업로드 (선택)
+      - name: ✅ 로그 아티팩트 업로드
         uses: actions/upload-artifact@v4
         with:
           name: spring-boot-logs-${{ env.TIMESTAMP }}
