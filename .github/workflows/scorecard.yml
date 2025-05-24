@@ -1,17 +1,15 @@
-name: Setup Branch Protection
+name: Enable Branch Protection
 
 on:
   workflow_dispatch:
 
 jobs:
-  protect-branch:
+  apply-branch-protection:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Install GitHub CLI
         run: |
@@ -21,9 +19,11 @@ jobs:
       - name: Authenticate GitHub CLI
         env:
           GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
-        run: gh auth status
+        run: |
+          echo "✅ GH CLI 인증 상태 확인 중..."
+          gh auth status
 
-      - name: Protect main branch
+      - name: Apply branch protection rules
         env:
           GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
           REPO: davidkims/my_real_study
