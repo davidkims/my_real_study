@@ -1,5 +1,5 @@
 ---
-name: Spring Boot Secure Install with Auto Directory & File Creation
+name: Spring Boot Secure Install with Auto Directory & Healthcheck
 
 on:
   workflow_dispatch:
@@ -23,50 +23,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: ✅ 필수 디렉토리 및 pom.xml 생성 (없을 경우)
+      - name: ✅ 필수 디렉토리 및 pom.xml, application.yml 생성
         run: |
           mkdir -p .github/workflows/{ci,lint,security,deploy}
           mkdir -p backend/src/main/resources
           mkdir -p disk-slot/slot-${TIMESTAMP}/{logs,build,run,tmp}
-          
-          # 기본 pom.xml 생성 (존재하지 않을 경우)
+
           if [ ! -f "backend/pom.xml" ]; then
-            cat > backend/pom.xml <<EOF
-<project xmlns="http://maven.apache.org/POM/4.0.0" 
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
-         http://maven.apache.org/xsd/maven-4.0.0.xsd">
-  <modelVersion>4.0.0</modelVersion>
-  <groupId>com.example</groupId>
-  <artifactId>demo</artifactId>
-  <version>0.0.1-SNAPSHOT</version>
-  <packaging>jar</packaging>
-  <properties>
-    <java.version>17</java.version>
-  </properties>
-  <dependencies>
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-web</artifactId>
-      <version>3.2.0</version>
-    </dependency>
-  </dependencies>
-  <build>
-    <plugins>
-      <plugin>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-maven-plugin</artifactId>
-      </plugin>
-    </plugins>
-  </build>
-</project>
-EOF
-            echo "✅ 기본 pom.xml 생성됨"
+            cat <<'EOF' > backend/pom.xml
           fi
 
-          # application.yml 생성 (없을 경우)
           if [ ! -f "backend/src/main/resources/application.yml" ]; then
-            cat > backend/src/main/resources/application.yml <<EOF
+            cat <<'EOF' > backend/src/main/resources/application.yml
 server:
   port: 8080
 
@@ -79,7 +47,6 @@ management:
     health:
       show-details: always
 EOF
-            echo "✅ 기본 application.yml 생성됨"
           fi
 
       - name: ✅ JDK & Maven 설치
@@ -95,10 +62,9 @@ EOF
           cp target/*.jar ../../disk-slot/slot-${TIMESTAMP}/build/
         working-directory: ./backend
 
-      - name: ✅ 서버 실행 (백그라운드)
+      - name: ✅ 서버 실행
         run: |
-          nohup java -jar disk-slot/slot-${TIMESTAMP}/build/*.jar \
-            > disk-slot/slot-${TIMESTAMP}/run/server.log 2>&1 &
+          nohup java -jar disk-slot/slot-${TIMESTAMP}/build/*.jar > disk-slot/slot-${TIMESTAMP}/run/server.log 2>&1 &
           echo $! > disk-slot/slot-${TIMESTAMP}/run/server.pid
 
       - name: ✅ Health Check
@@ -138,8 +104,8 @@ EOF
         with:
           sarif_file: disk-slot/slot-${TIMESTAMP}/logs/scorecard.sarif
 
-      - name: ✅ 아티팩트 업로드
+      - name: ✅ 로그 아티팩트 업로드
         uses: actions/upload-artifact@v4
         with:
-          name: spring-boot-all-logs-${{ env.TIMESTAMP }}
+          name: spring-boot-secure-logs-${{ env.TIMESTAMP }}
           path: disk-slot/slot-${TIMESTAMP}/logs
