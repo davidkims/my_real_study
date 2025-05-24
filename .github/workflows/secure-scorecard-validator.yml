@@ -1,0 +1,83 @@
+name: Secure Scorecard Validator
+
+on:
+  push:
+    paths:
+      - ".github/workflows/**"
+      - "results.sarif"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  security-events: write
+  id-token: write
+
+jobs:
+  secure-validate:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Validate SARIF format
+        id: sarif-check
+        run: |
+          echo "🔍 Validating SARIF file..."
+          if ! jq empty results.sarif 2>/dev/null; then
+            echo "❌ Invalid SARIF format detected!"
+            echo '{}' > results.sarif  # fallback SARIF
+            echo "fallback=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "✅ SARIF file is valid."
+            echo "fallback=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload fallback SARIF if needed
+        if: steps.sarif-check.outputs.fallback == 'true'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+
+      - name: Scan workflows for unsafe patterns
+        id: scan
+        run: |
+          echo "🔐 Scanning .github/workflows for unsafe code..."
+          mkdir -p patch-log
+          UNSAFE=false
+
+          for file in .github/workflows/*.yml; do
+            grep -E 'curl|chmod\s+777|rm\s+-rf|set-env|sudo' "$file" && {
+              echo "⚠️ Detected unsafe pattern in $file"
+              UNSAFE=true
+              sed -i.bak -E 's/(curl|chmod\s+777|rm\s+-rf|set-env|sudo)/# [REMOVED: SECURITY RISK] \1/g' "$file"
+              echo "🔧 Patched $file due to unsafe code" >> patch-log/summary.log
+            }
+          done
+
+          echo "unsafe=$UNSAFE" >> "$GITHUB_OUTPUT"
+
+      - name: Commit workflow patch
+        if: steps.scan.outputs.unsafe == 'true'
+        run: |
+          echo "✅ Committing workflow patch..."
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/
+          git commit -m "🔒 Auto-patched unsafe workflow code"
+          git push
+
+      - name: Create Pull Request (if unsafe found)
+        if: steps.scan.outputs.unsafe == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "🔒 Auto-patched unsafe workflow code"
+          title: "Security: Unsafe workflow code auto-patch"
+          body: |
+            The following workflow files contained potentially unsafe commands and were automatically patched:
+            ```diff
+            $(cat patch-log/summary.log)
+            ```
+          branch: fix/unsafe-workflows
+          delete-branch: true
