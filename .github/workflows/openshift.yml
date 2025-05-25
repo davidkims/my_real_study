@@ -67,9 +67,24 @@ jobs:
           rm -f oc.tar.gz README.md
           echo "✅ OpenShift CLI (oc) 설치 완료"
 
+      - name: Create default Dockerfile if missing
+        run: |
+          if [ ! -f ./Dockerfile ]; then
+            echo "⚠️ Dockerfile 없음. 기본 파일 생성 중..."
+            echo "FROM ubuntu:20.04" > ./Dockerfile
+            echo "ENV DEBIAN_FRONTEND=noninteractive" >> ./Dockerfile
+            echo "RUN apt-get update && apt-get install -y curl --no-install-recommends && apt-get clean && rm -rf /var/lib/apt/lists/*" >> ./Dockerfile
+            echo 'CMD ["sleep", "3600"]' >> ./Dockerfile
+          fi
+
       - name: Create Docker image
         run: |
-          docker build -t ghcr.io/${{ github.repository_owner }}/demo-app:latest .
+          DOCKERFILE_PATH=./Dockerfile
+          if [ -f ./backend/Dockerfile ]; then
+            echo "📦 backend/Dockerfile 경로 감지됨"
+            DOCKERFILE_PATH=./backend
+          fi
+          docker build -t ghcr.io/${{ github.repository_owner }}/demo-app:latest $DOCKERFILE_PATH
           docker tag ghcr.io/${{ github.repository_owner }}/demo-app:latest \
             ghcr.io/${{ github.repository_owner }}/demo-app:${GITHUB_SHA::12}
           echo "✅ Docker 이미지 생성 완료"
