@@ -1,0 +1,24 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"  # node, package.json
+    directory: "/"            # 루트 디렉토리 기준
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "npm fix"
+    labels:
+      - "dependencies"
+    ignore:
+      - dependency-name: "react"
+        versions: ["17.x"]
+
+  - package-ecosystem: "maven"  # Java Spring Boot 등
+    directory: "/backend"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "maven fix"
+    labels:
+      - "dependencies"
