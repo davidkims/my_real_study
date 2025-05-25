@@ -1,0 +1,33 @@
+name: "Frogbot Scan and Fix"
+
+on:
+  push:
+    branches: [ "main" ]
+  schedule:
+    - cron: '0 1 * * *'  # 매일 01:00 UTC 실행
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  security-events: write
+
+jobs:
+  frogbot-scan-fix:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Run Frogbot scan and create fix PRs
+        uses: jfrog/frogbot@5d9c42c30f1169d8be4ba5510b40e75ffcbbc2a9 # v2.21.2
+        env:
+          JF_URL: ${{ secrets.JF_URL }}
+          JF_ACCESS_TOKEN: ${{ secrets.JF_ACCESS_TOKEN }}
+          JF_GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+          # 선택 사항 - 필요 시 주석 해제
+          # JF_INSTALL_DEPS_CMD: "npm install"
+          # JF_RELEASES_REPO: "releases-virtual"
+          # JF_DEPS_REPO: "npm-virtual"
