@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [ "main" ]
   schedule:
-    - cron: '18 9 * * 6'  # 매주 토요일 오전 9시 18분
+    - cron: '18 9 * * 6'
   workflow_dispatch:
 
 permissions:
@@ -18,11 +18,6 @@ jobs:
   xanitizer-sast:
     runs-on: ubuntu-latest
 
-    permissions:
-      contents: read
-      security-events: write
-      actions: read
-
     steps:
       - name: ✅ Checkout Source
         uses: actions/checkout@v4
@@ -33,10 +28,12 @@ jobs:
           java-version: '11'
           distribution: 'temurin'
 
-      - name: 🧰 Setup Maven
+      - name: 🧰 Setup Maven (Fixed)
         uses: s4u/setup-maven-action@v1.8.0
         with:
           maven-version: '3.9.6'
+          java-version: '11'
+          java-distribution: 'temurin'
 
       - name: 📦 Setup Node.js
         uses: actions/setup-node@v4
