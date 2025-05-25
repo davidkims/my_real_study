@@ -28,7 +28,7 @@ jobs:
           java-version: '11'
           distribution: 'temurin'
 
-      - name: 🧰 Setup Maven (Fixed)
+      - name: 🧰 Setup Maven
         uses: s4u/setup-maven-action@v1.8.0
         with:
           maven-version: '3.9.6'
@@ -49,16 +49,18 @@ jobs:
         run: |
           mkdir -p logs reports dist build target
 
-      - name: 🔨 Compile Java Code
+      - name: 🔨 Compile Java Code (backend/)
         run: mvn -B compile
+        working-directory: backend
 
-      - name: 📥 Install JavaScript Dependencies
+      - name: 📥 Install JavaScript Dependencies (if exists)
         run: |
           if [ -f "package.json" ]; then
             npm install
           else
-            echo "⚠️ package.json not found. Skipping npm install."
+            echo "⚠️ No package.json found in backend. Skipping npm install."
           fi
+        working-directory: backend
 
       - name: 🔍 Check for Xanitizer License
         id: check_license
