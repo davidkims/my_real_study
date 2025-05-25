@@ -1,0 +1,60 @@
+name: PSScriptAnalyzer Secure Workflow
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    - cron: '33 3 * * 1'  # 매주 월요일 03:33 UTC 실행
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Run PSScriptAnalyzer
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+
+    steps:
+      # 소스코드 체크아웃
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ✅ 필수 패키지 및 디렉토리 설치
+      - name: Setup environment
+        run: |
+          echo "📦 필수 패키지 설치 중..."
+          sudo apt-get update
+          sudo apt-get install -y powershell curl unzip jq
+
+          echo "📁 작업 디렉토리 및 파일 생성..."
+          mkdir -p ./reports
+          mkdir -p ./scripts/sample
+          echo 'Write-Host "Test PowerShell script"' > ./scripts/sample/test.ps1
+
+          echo "🔐 권한 설정..."
+          chmod -R 755 ./scripts
+          chmod 644 ./scripts/sample/test.ps1
+
+          echo "✅ 환경 구성 완료"
+
+      # ✅ PSScriptAnalyzer 실행
+      - name: Run PSScriptAnalyzer
+        uses: microsoft/psscriptanalyzer-action@6b2948b1944407914a58661c49941824d149734f
+        with:
+          path: ./scripts
+          recurse: true
+          includeRule: '"PSAvoidGlobalAliases", "PSAvoidUsingConvertToSecureStringWithPlainText"'
+          output: ./reports/results.sarif
+
+      # ✅ 결과 업로드
+      - name: Upload SARIF results to GitHub
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ./reports/results.sarif
