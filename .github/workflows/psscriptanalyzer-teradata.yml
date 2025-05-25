@@ -1,0 +1,89 @@
+name: PSScriptAnalyzer + Teradata Setup
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: '33 3 * * 1'
+
+permissions:
+  contents: write
+  security-events: write
+  actions: read
+
+jobs:
+  analyze:
+    name: Setup Teradata & Analyze PS Scripts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Required Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y powershell curl unzip jq
+
+      - name: Create Folders & Files (PowerShell + Teradata)
+        run: |
+          echo "📁 PowerShell 디렉토리 및 예제 파일 생성..."
+          mkdir -p ./scripts/sample
+          echo 'Write-Host "Test PowerShell script"' > ./scripts/sample/test.ps1
+
+          echo "📁 reports, dml_db_flag 생성..."
+          mkdir -p ./reports
+          echo "DML_FLAG=START" > ./reports/dml_db_flag
+          date >> ./reports/dml_db_flag
+
+          echo "🗃️ Teradata 관련 디렉토리 및 샘플 SQL/스크립트 생성..."
+          mkdir -p ./teradata/td_scripts
+          echo "-- Sample Teradata SQL" > ./teradata/td_scripts/connect.sql
+          echo "SELECT * FROM dbc.tables;" >> ./teradata/td_scripts/connect.sql
+
+          echo '#!/bin/bash' > ./teradata/td_scripts/startup.sh
+          echo 'echo "🟢 Teradata Server Starting..."' >> ./teradata/td_scripts/startup.sh
+          echo 'sleep 1 && echo "✅ Teradata Server Ready."' >> ./teradata/td_scripts/startup.sh
+          chmod +x ./teradata/td_scripts/startup.sh
+
+          echo '#!/bin/bash' > ./teradata/td_server.sh
+          echo 'echo "Teradata server process started (simulated)"' >> ./teradata/td_server.sh
+          echo 'while true; do sleep 60; done' >> ./teradata/td_server.sh
+          chmod +x ./teradata/td_server.sh
+
+          echo "📦 디렉토리 및 Teradata 파일 생성 완료"
+
+      - name: Run Simulated Teradata Server Process
+        run: |
+          echo "🚀 Teradata 서버 시뮬레이션 시작..."
+          nohup ./teradata/td_server.sh > ./reports/teradata_server.log 2>&1 &
+          echo "🔁 백그라운드에서 실행됨: PID=$(pgrep -f td_server.sh)"
+
+      - name: Run PSScriptAnalyzer
+        uses: microsoft/psscriptanalyzer-action@6b2948b1944407914a58661c49941824d149734f
+        with:
+          path: ./scripts
+          recurse: true
+          includeRule: '"PSAvoidGlobalAliases", "PSAvoidUsingConvertToSecureStringWithPlainText"'
+          output: ./reports/results.sarif
+
+      - name: Upload SARIF Results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ./reports/results.sarif
+
+      - name: Git Tag and Push
+        env:
+          TAG_PREFIX: v
+        run: |
+          TIMESTAMP=$(date +"%Y%m%d-%H%M")
+          TAG_NAME="${TAG_PREFIX}-teradata-${TIMESTAMP}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git tag "$TAG_NAME"
+          git push origin "$TAG_NAME"
+          echo "✅ 태그 $TAG_NAME 푸시 완료"
