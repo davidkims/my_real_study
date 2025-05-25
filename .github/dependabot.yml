@@ -8,7 +8,7 @@ updates:
 
   # ✅ Yarn
   - package-ecosystem: "yarn"
-    directory: "/" # package.json 위치
+    directory: "/" # package.json 및 yarn.lock 위치
     schedule:
       interval: "weekly"
 
@@ -32,7 +32,7 @@ updates:
 
   # ✅ GitHub Actions
   - package-ecosystem: "github-actions"
-    directory: "/" # .github/workflows
+    directory: "/" # .github/workflows 폴더
     schedule:
       interval: "weekly"
 
@@ -54,7 +54,7 @@ updates:
     schedule:
       interval: "weekly"
 
-  # ✅ Go (Go Modules)
+  # ✅ Go Modules (Go)
   - package-ecosystem: "gomod"
     directory: "/" # go.mod 위치
     schedule:
