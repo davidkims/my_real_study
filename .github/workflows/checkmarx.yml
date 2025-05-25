@@ -41,8 +41,17 @@ jobs:
           yamllint "$file" >> $SLOT_DIR/logs/yaml-summary.log 2>&1 || echo "❌ Lint error in $file" >> $SLOT_DIR/logs/yaml-errors.log
         done
 
+    - name: 🔎 Check if required Checkmarx secrets are set
+      id: check_secrets
+      run: |
+        if [[ -z "${{ secrets.CHECKMARX_PROJECT }}" || -z "${{ secrets.CHECKMARX_USERNAME }}" || -z "${{ secrets.CHECKMARX_PASSWORD }}" ]]; then
+          echo "run_scan=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "run_scan=true" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: 🔐 Run Checkmarx CxFlow SAST scan
-      if: ${{ secrets.CHECKMARX_PROJECT && secrets.CHECKMARX_USERNAME && secrets.CHECKMARX_PASSWORD }}
+      if: steps.check_secrets.outputs.run_scan == 'true'
       uses: checkmarx-ts/checkmarx-cxflow-github-action@49d8269b14ca87910ba003d47a31fa0c7a11f2fe
       with:
         project: ${{ secrets.CHECKMARX_PROJECT }}
@@ -74,8 +83,8 @@ jobs:
           --checkmarx.disable-clubbing=true
           --repo-url=${{ github.event.repository.url }}
 
-    - name: 🧾 Upload SARIF results (if any)
-      if: ${{ always() }}
+    - name: 🧾 Upload SARIF results (if scan happened)
+      if: steps.check_secrets.outputs.run_scan == 'true'
       uses: github/codeql-action/upload-sarif@v3
       with:
         sarif_file: cx.sarif
