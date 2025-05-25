@@ -99,6 +99,14 @@ jobs:
           docker push ghcr.io/${{ github.repository_owner }}/demo-app:${GITHUB_SHA::12}
           echo "✅ 이미지 GHCR 업로드 완료"
 
+      - name: Validate required OpenShift secrets
+        run: |
+          if [ -z "${{ secrets.OPENSHIFT_SERVER }}" ] || [ -z "${{ secrets.OPENSHIFT_TOKEN }}" ]; then
+            echo "❌ OPENSHIFT_SERVER 또는 OPENSHIFT_TOKEN이 설정되지 않았습니다"
+            exit 1
+          fi
+          echo "✅ 필수 시크릿 확인 완료"
+
       - name: OpenShift login and deploy app
         run: |
           oc login ${{ secrets.OPENSHIFT_SERVER }} --token=${{ secrets.OPENSHIFT_TOKEN }} --insecure-skip-tls-verify=true
