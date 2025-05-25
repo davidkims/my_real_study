@@ -82,9 +82,10 @@ jobs:
           DOCKERFILE_PATH=./Dockerfile
           if [ -f ./backend/Dockerfile ]; then
             echo "📦 backend/Dockerfile 경로 감지됨"
-            DOCKERFILE_PATH=./backend
+            DOCKERFILE_PATH=./backend/Dockerfile
           fi
-          docker build -t ghcr.io/${{ github.repository_owner }}/demo-app:latest $DOCKERFILE_PATH
+
+          docker build -f $DOCKERFILE_PATH -t ghcr.io/${{ github.repository_owner }}/demo-app:latest .
           docker tag ghcr.io/${{ github.repository_owner }}/demo-app:latest \
             ghcr.io/${{ github.repository_owner }}/demo-app:${GITHUB_SHA::12}
           echo "✅ Docker 이미지 생성 완료"
