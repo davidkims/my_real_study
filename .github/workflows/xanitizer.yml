@@ -1,4 +1,4 @@
-name: "🔐 Xanitizer Mega Security Analysis (Skip if No License)"
+name: "🔐 Xanitizer Mega Security Analysis"
 
 on:
   push:
@@ -29,25 +29,24 @@ jobs:
 
       - name: 🔧 Install Required Programs
         run: |
-          set -e
           sudo apt-get update
           sudo apt-get install -y unzip curl jq libaio-dev
 
       - name: ☕ Setup Java 11
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v3
         with:
           java-version: '11'
           distribution: 'temurin'
-
-      - name: 📦 Setup Node.js & npm
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
 
       - name: 🧰 Setup Maven
         uses: s4u/setup-maven-action@v1.8.0
         with:
           maven-version: '3.9.6'
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
       - name: 🗂️ Create Required Folders
         run: |
@@ -56,7 +55,7 @@ jobs:
       - name: 🔨 Compile Java Code
         run: mvn -B compile
 
-      - name: 📥 Install JavaScript Dependencies
+      - name: 📥 Install JavaScript Dependencies (if applicable)
         run: |
           if [ -f "package.json" ]; then
             npm install
@@ -81,7 +80,7 @@ jobs:
         with:
           license: ${{ secrets.XANITIZER_LICENSE }}
 
-      - name: 📄 Archive Reports if Exists
+      - name: 📄 Archive Reports if Available
         if: steps.check_license.outputs.run_scan == 'true'
         uses: actions/upload-artifact@v4
         with:
@@ -90,7 +89,7 @@ jobs:
             *-Findings-List.pdf
             *-Findings-List.sarif
 
-      - name: 🚨 Upload SARIF if Exists
+      - name: 🚨 Upload SARIF to GitHub Code Scanning
         if: steps.check_license.outputs.run_scan == 'true' && hashFiles('*-Findings-List.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
