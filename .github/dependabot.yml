@@ -1,0 +1,61 @@
+version: 2
+updates:
+  # ✅ Node.js (npm)
+  - package-ecosystem: "npm"
+    directory: "/" # package.json 위치
+    schedule:
+      interval: "weekly"
+
+  # ✅ Yarn
+  - package-ecosystem: "yarn"
+    directory: "/" # package.json 위치
+    schedule:
+      interval: "weekly"
+
+  # ✅ Python (pip)
+  - package-ecosystem: "pip"
+    directory: "/" # requirements.txt 위치
+    schedule:
+      interval: "weekly"
+
+  # ✅ Java (Maven)
+  - package-ecosystem: "maven"
+    directory: "/" # pom.xml 위치
+    schedule:
+      interval: "weekly"
+
+  # ✅ Java (Gradle)
+  - package-ecosystem: "gradle"
+    directory: "/" # build.gradle 위치
+    schedule:
+      interval: "weekly"
+
+  # ✅ GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/" # .github/workflows
+    schedule:
+      interval: "weekly"
+
+  # ✅ Docker
+  - package-ecosystem: "docker"
+    directory: "/" # Dockerfile 위치
+    schedule:
+      interval: "weekly"
+
+  # ✅ Ruby (Bundler)
+  - package-ecosystem: "bundler"
+    directory: "/" # Gemfile 위치
+    schedule:
+      interval: "weekly"
+
+  # ✅ Rust (Cargo)
+  - package-ecosystem: "cargo"
+    directory: "/" # Cargo.toml 위치
+    schedule:
+      interval: "weekly"
+
+  # ✅ Go (Go Modules)
+  - package-ecosystem: "gomod"
+    directory: "/" # go.mod 위치
+    schedule:
+      interval: "weekly"
