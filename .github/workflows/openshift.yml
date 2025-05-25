@@ -1,0 +1,109 @@
+name: Full OpenShift + Docker Setup
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  actions: read
+  security-events: write
+
+jobs:
+  openshift-docker-setup:
+    name: Full OpenShift & Docker Provisioning
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            curl wget unzip git \
+            gnupg2 lsb-release ca-certificates apt-transport-https software-properties-common
+
+      - name: Create required directories and label them
+        run: |
+          mkdir -p /opt/docker/{build,images,configs} /opt/openshift/{deploy,configs,logs}
+          mkdir -p ~/.docker ~/.kube
+          echo "Docker directories: /opt/docker/*"
+          echo "OpenShift directories: /opt/openshift/*"
+          echo "✅ 디렉토리 생성 및 구조화 완료"
+
+      - name: Set permissions on created directories
+        run: |
+          sudo chown -R $USER:$USER /opt/docker /opt/openshift ~/.docker ~/.kube
+          sudo chmod -R 755 /opt/docker /opt/openshift ~/.docker ~/.kube
+          echo "📛 디렉토리 권한 설정 완료"
+
+      - name: Install Docker
+        run: |
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker.gpg
+          echo \
+            "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker.gpg] \
+            https://download.docker.com/linux/ubuntu \
+            $(lsb_release -cs) stable" | \
+            sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+          sudo usermod -aG docker $USER
+          echo "✅ Docker 설치 완료 및 권한 부여"
+
+      - name: Verify Docker installation
+        run: docker --version
+
+      - name: Install OpenShift CLI (oc)
+        run: |
+          curl -LO https://mirror.openshift.com/pub/openshift-v4/clients/oc/latest/linux/oc.tar.gz
+          tar -xzf oc.tar.gz
+          sudo mv oc /usr/local/bin/
+          rm -f oc.tar.gz README.md
+          echo "✅ OpenShift CLI (oc) 설치 완료"
+
+      - name: Create Docker image
+        run: |
+          docker build -t ghcr.io/${{ github.repository_owner }}/demo-app:latest .
+          docker tag ghcr.io/${{ github.repository_owner }}/demo-app:latest \
+            ghcr.io/${{ github.repository_owner }}/demo-app:${GITHUB_SHA::12}
+          echo "✅ Docker 이미지 생성 완료"
+
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Push Docker image to GHCR
+        run: |
+          docker push ghcr.io/${{ github.repository_owner }}/demo-app:latest
+          docker push ghcr.io/${{ github.repository_owner }}/demo-app:${GITHUB_SHA::12}
+          echo "✅ 이미지 GHCR 업로드 완료"
+
+      - name: OpenShift login and deploy app
+        run: |
+          oc login ${{ secrets.OPENSHIFT_SERVER }} --token=${{ secrets.OPENSHIFT_TOKEN }} --insecure-skip-tls-verify=true
+          oc new-project demo-project || echo "프로젝트 존재함"
+          oc project demo-project
+          oc new-app ghcr.io/${{ github.repository_owner }}/demo-app:latest --name=demo-app
+          oc expose svc/demo-app
+          echo "✅ OpenShift 앱 배포 및 노출 완료"
+
+      - name: Label OpenShift resources
+        run: |
+          oc label svc/demo-app app=demo tier=backend env=prod --overwrite
+          oc label deployment/demo-app app=demo tier=backend env=prod --overwrite
+          echo "🏷️ OpenShift 라벨링 완료"
+
+      - name: Print OpenShift route
+        run: |
+          ROUTE=$(oc get route demo-app -o jsonpath='{.spec.host}')
+          echo "🌐 애플리케이션 URL: http://$ROUTE"
+
+      - name: Clean up (Optional)
+        if: always()
+        run: |
+          echo "정리 작업 완료 또는 생략 가능"
