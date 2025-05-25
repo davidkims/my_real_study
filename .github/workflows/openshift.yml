@@ -104,8 +104,8 @@ jobs:
           echo "🔑 OpenShift 로그인 토큰 생성 시뮬레이션 중..."
           echo "실제 실행 환경에서는 로컬에서 다음 명령어를 통해 생성 가능합니다:"
           echo "    oc whoami -t"
-          echo "
-⚠️ 앱 배포는 현재 단계에서 SKIP 처리되었습니다."
+          echo ""
+          echo "⚠️ 앱 배포는 현재 단계에서 SKIP 처리되었습니다."
 
       - name: Print OpenShift route (skipped)
         run: echo "🌐 OpenShift 앱 배포가 생략되었으므로 ROUTE 출력을 생략합니다."
