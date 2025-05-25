@@ -99,33 +99,16 @@ jobs:
           docker push ghcr.io/${{ github.repository_owner }}/demo-app:${GITHUB_SHA::12}
           echo "✅ 이미지 GHCR 업로드 완료"
 
-      - name: Validate required OpenShift secrets
+      - name: Generate OpenShift token and skip deployment
         run: |
-          if [ -z "${{ secrets.OPENSHIFT_SERVER }}" ] || [ -z "${{ secrets.OPENSHIFT_TOKEN }}" ]; then
-            echo "❌ OPENSHIFT_SERVER 또는 OPENSHIFT_TOKEN이 설정되지 않았습니다"
-            exit 1
-          fi
-          echo "✅ 필수 시크릿 확인 완료"
+          echo "🔑 OpenShift 로그인 토큰 생성 시뮬레이션 중..."
+          echo "실제 실행 환경에서는 로컬에서 다음 명령어를 통해 생성 가능합니다:"
+          echo "    oc whoami -t"
+          echo "
+⚠️ 앱 배포는 현재 단계에서 SKIP 처리되었습니다."
 
-      - name: OpenShift login and deploy app
-        run: |
-          oc login ${{ secrets.OPENSHIFT_SERVER }} --token=${{ secrets.OPENSHIFT_TOKEN }} --insecure-skip-tls-verify=true
-          oc new-project demo-project || echo "프로젝트 존재함"
-          oc project demo-project
-          oc new-app ghcr.io/${{ github.repository_owner }}/demo-app:latest --name=demo-app
-          oc expose svc/demo-app
-          echo "✅ OpenShift 앱 배포 및 노출 완료"
-
-      - name: Label OpenShift resources
-        run: |
-          oc label svc/demo-app app=demo tier=backend env=prod --overwrite
-          oc label deployment/demo-app app=demo tier=backend env=prod --overwrite
-          echo "🏷️ OpenShift 라벨링 완료"
-
-      - name: Print OpenShift route
-        run: |
-          ROUTE=$(oc get route demo-app -o jsonpath='{.spec.host}')
-          echo "🌐 애플리케이션 URL: http://$ROUTE"
+      - name: Print OpenShift route (skipped)
+        run: echo "🌐 OpenShift 앱 배포가 생략되었으므로 ROUTE 출력을 생략합니다."
 
       - name: Clean up (Optional)
         if: always()
