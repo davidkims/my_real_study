@@ -9,24 +9,19 @@ on:
     - cron: '33 3 * * 1'  # 매주 월요일 03:33 UTC 실행
 
 permissions:
-  contents: read
+  contents: write  # 태그 및 커밋 푸시를 위해 write 권한 필요
+  actions: read
+  security-events: write
 
 jobs:
   analyze:
     name: Run PSScriptAnalyzer
     runs-on: ubuntu-latest
 
-    permissions:
-      contents: read
-      actions: read
-      security-events: write
-
     steps:
-      # 소스코드 체크아웃
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ✅ 필수 패키지 및 디렉토리 설치
       - name: Setup environment
         run: |
           echo "📦 필수 패키지 설치 중..."
@@ -38,13 +33,17 @@ jobs:
           mkdir -p ./scripts/sample
           echo 'Write-Host "Test PowerShell script"' > ./scripts/sample/test.ps1
 
+          echo "🧾 dml_db_flag 파일 생성..."
+          echo "DML_FLAG=START" > ./reports/dml_db_flag
+          date >> ./reports/dml_db_flag
+
           echo "🔐 권한 설정..."
           chmod -R 755 ./scripts
           chmod 644 ./scripts/sample/test.ps1
+          chmod 644 ./reports/dml_db_flag
 
-          echo "✅ 환경 구성 완료"
+          echo "✅ 초기 환경 구성 완료"
 
-      # ✅ PSScriptAnalyzer 실행
       - name: Run PSScriptAnalyzer
         uses: microsoft/psscriptanalyzer-action@6b2948b1944407914a58661c49941824d149734f
         with:
@@ -53,8 +52,23 @@ jobs:
           includeRule: '"PSAvoidGlobalAliases", "PSAvoidUsingConvertToSecureStringWithPlainText"'
           output: ./reports/results.sarif
 
-      # ✅ 결과 업로드
       - name: Upload SARIF results to GitHub
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: ./reports/results.sarif
+
+      - name: Create Git Tag and Push
+        env:
+          TAG_PREFIX: v
+        run: |
+          echo "🏷️ Git 태그 생성 중..."
+          TIMESTAMP=$(date +"%Y%m%d-%H%M")
+          TAG_NAME="${TAG_PREFIX}-${TIMESTAMP}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git tag "$TAG_NAME"
+          git push origin "$TAG_NAME"
+
+          echo "✅ 태그 $TAG_NAME 푸시 완료"
