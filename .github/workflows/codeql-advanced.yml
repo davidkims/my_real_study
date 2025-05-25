@@ -1,4 +1,4 @@
-name: "CodeQL Advanced Secure Setup"
+name: "CodeQL Advanced Secure Scan"
 
 on:
   push:
@@ -35,14 +35,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Ensure required directories and permissions
+      - name: Prepare result directory
         run: |
-          echo "📁 Creating necessary folders..."
-          mkdir -p ./logs ./reports ./config ./scripts
-          sudo chmod -R 755 ./logs ./reports ./config ./scripts
-          echo "✅ Folder and permission setup complete."
+          mkdir -p results
+          echo "✅ Created results directory."
 
-      - name: Setup JDK 17 for Java (if applicable)
+      - name: Setup Java (if needed)
         if: matrix.language == 'java-kotlin'
         uses: actions/setup-java@v4
         with:
@@ -56,32 +54,29 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
           queries: +security-extended,security-and-quality
 
-      - name: Manual build step for compiled languages
-        if: matrix.build-mode == 'manual'
-        shell: bash
+      - name: Manual Build for Java/Kotlin
+        if: matrix.language == 'java-kotlin'
         run: |
-          echo "⚙️ Performing manual build..."
-          mkdir -p ./target
-          chmod 755 ./target
-          ./mvnw clean install -DskipTests=true || ./gradlew build -x test || true
-          echo "✅ Build complete"
+          echo "🔧 Starting manual build for Java/Kotlin..."
+          chmod +x ./mvnw || true
+          ./mvnw clean install -DskipTests=true || ./gradlew build -x test || echo "⚠️ No supported build tool found."
+          echo "✅ Manual build step complete."
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
-          category: "/language:${{ matrix.language }}"
+          category: /language:${{ matrix.language }}
+          output: results/${{ matrix.language }}.sarif
+          upload: always
+          cleanup-level: brutal
+          add-snippets: false
+          skip-queries: false
+          upload-database: true
+          wait-for-processing: true
 
-      - name: Upload SARIF results (for additional backup/visibility)
-        if: always()
+      - name: Upload SARIF Results
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results/${{ matrix.language }}.sarif
-          category: "${{ matrix.language }}"
-
-      - name: Post-analysis disk check and logging
-        run: |
-          echo "📦 Disk usage summary:"
-          df -h
-          echo "🔍 List scanned files:"
-          find . -type f | tee ./logs/scanned-files.log
-          echo "✅ Analysis complete and logged."
+          category: ${{ matrix.language }}
+          wait-for-processing: true
