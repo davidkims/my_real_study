@@ -1,16 +1,16 @@
-name: Daily Secure CxFlow & Workflow Checker
+name: Secure CxFlow Scan with Smart Secret Handling
 
 on:
   schedule:
-    - cron: '0 1 * * *'  # 매일 오전 1시 (KST 오전 10시)
+    - cron: '0 1 * * *'  # 매일 오전 10시 (KST)
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  secure-build:
-    name: Checkmarx Scan + Workflow Check
+  secure-scan:
+    name: Checkmarx CxFlow + Workflow Lint
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -19,37 +19,53 @@ jobs:
       security-events: write
       actions: read
 
+    env:
+      TIMESTAMP: ${{ github.run_id }}-${{ github.run_number }}
+      SLOT_DIR: .secure-slot/slot-${{ github.run_id }}-${{ github.run_number }}
+
     steps:
     - name: 📁 Checkout source
       uses: actions/checkout@v4
 
-    - name: 🧪 Validate all workflows in .github/workflows/
+    - name: 📦 Initialize structure for secure config management
       run: |
-        mkdir -p logs/workflow-check
+        mkdir -p $SLOT_DIR/logs $SLOT_DIR/reports $SLOT_DIR/scripts
+        chmod -R 755 $SLOT_DIR
+        echo "📦 SLOT created at $SLOT_DIR"
+
+    - name: ✅ Validate .github/workflows YAML
+      run: |
+        sudo apt-get update && sudo apt-get install -y yamllint
         find .github/workflows -name "*.yml" -o -name "*.yaml" | while read file; do
-          echo "🔍 Validating $file" | tee -a logs/workflow-check/summary.log
-          yamllint "$file" >> logs/workflow-check/summary.log 2>&1 || echo "❌ Lint error in $file" >> logs/workflow-check/errors.log
+          echo "🔍 Validating $file" | tee -a $SLOT_DIR/logs/yaml-summary.log
+          yamllint "$file" >> $SLOT_DIR/logs/yaml-summary.log 2>&1 || echo "❌ Lint error in $file" >> $SLOT_DIR/logs/yaml-errors.log
         done
 
-    - name: 🔐 Initialize Secure Directories (형상관리 시뮬레이션)
-      run: |
-        TIMESTAMP=$(date +"%Y%m%d-%H%M")
-        export SLOT_DIR=".secure-slot/slot-${TIMESTAMP}"
-        mkdir -p "$SLOT_DIR/logs" "$SLOT_DIR/reports" "$SLOT_DIR/scripts"
-        chmod -R 755 "$SLOT_DIR"
-        echo "✅ Created secure slot at $SLOT_DIR"
-
-    - name: 🔍 Run Checkmarx CxFlow Scan
+    - name: 🔐 Run Checkmarx CxFlow SAST scan
+      if: ${{ secrets.CHECKMARX_PROJECT && secrets.CHECKMARX_USERNAME && secrets.CHECKMARX_PASSWORD }}
       uses: checkmarx-ts/checkmarx-cxflow-github-action@49d8269b14ca87910ba003d47a31fa0c7a11f2fe
       with:
         project: ${{ secrets.CHECKMARX_PROJECT }}
-        team: ${{ secrets.CHECKMARX_TEAMS }}
-        checkmarx_url: ${{ secrets.CHECKMARX_URL }}
+        checkmarx_url: ${{ secrets.CHECKMARX_URL || 'https://cloud.checkmarx.net' }}
         checkmarx_username: ${{ secrets.CHECKMARX_USERNAME }}
         checkmarx_password: ${{ secrets.CHECKMARX_PASSWORD }}
-        checkmarx_client_secret: ${{ secrets.CHECKMARX_CLIENT_SECRET }}
+        checkmarx_client_secret: ${{ secrets.CHECKMARX_CLIENT_SECRET || '' }}
+        team: ${{ secrets.CHECKMARX_TEAMS || '' }}
         scanners: sast
+        app: SampleApp
+        preset: High and Medium
+        break_build: false
+        bug_tracker: Sarif
+        incremental: true
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        sca_api_url: ${{ secrets.SCA_API_URL || '' }}
+        sca_app_url: ${{ secrets.SCA_APP_URL || '' }}
+        sca_access_control_url: ${{ secrets.SCA_ACCESS_CONTROL_URL || '' }}
+        cxgo_base_url: ${{ secrets.CXGO_BASE_URL || '' }}
+        cxgo_portal_url: ${{ secrets.CXGO_PORTAL_URL || '' }}
+        java_opts: -XX:MaxRAMPercentage=75.0
         params: >
+          --cx-project="${{ secrets.CHECKMARX_PROJECT }}"
           --namespace=${{ github.repository_owner }}
           --repo-name=${{ github.event.repository.name }}
           --branch=${{ github.ref }}
@@ -58,12 +74,13 @@ jobs:
           --checkmarx.disable-clubbing=true
           --repo-url=${{ github.event.repository.url }}
 
-    - name: 📤 Upload SARIF for GitHub Security Alert
+    - name: 🧾 Upload SARIF results (if any)
+      if: ${{ always() }}
       uses: github/codeql-action/upload-sarif@v3
       with:
         sarif_file: cx.sarif
 
-    - name: 📓 Archive Logs
+    - name: 🗃 Archive logs
       run: |
-        tar czf slot-logs.tar.gz logs
-        mv slot-logs.tar.gz $SLOT_DIR/
+        tar czf $SLOT_DIR/logs.tar.gz $SLOT_DIR/logs || echo "⚠️ No logs found"
+        echo "📁 Logs archived at $SLOT_DIR/logs.tar.gz"
