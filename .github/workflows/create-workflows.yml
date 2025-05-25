@@ -1,0 +1,43 @@
+---
+name: Create .github/workflows Directories with Preallocated Space
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  create-directories:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Create .github/workflows and subdirectories
+        run: |
+          mkdir -p .github/workflows/lint
+          mkdir -p .github/workflows/security
+          mkdir -p .github/workflows/deploy
+          mkdir -p .github/workflows/ci
+          mkdir -p .github/workflows/utils
+          mkdir -p .github/workflows/auth
+          mkdir -p .github/workflows/db
+          echo "✅ 디렉토리 생성 완료"
+
+      - name: Add .gitkeep to track empty directories
+        run: |
+          find .github/workflows -type d ! -path .github/workflows -exec touch {}/.gitkeep \;
+
+      - name: Preallocate dummy files (simulate max usage for auth/db)
+        run: |
+          echo "⏳ 디스크 공간 사전 확보 중..."
+          dd if=/dev/zero of=.github/workflows/auth/.dummy_auth_data bs=1M count=100 || true
+          dd if=/dev/zero of=.github/workflows/db/.dummy_db_data bs=1M count=200 || true
+          echo "✅ auth에 100MB, db에 200MB 더미 파일 생성 완료"
+
+      - name: List all created files
+        run: |
+          echo "📁 생성된 디렉토리 및 파일:"
+          find .github/workflows -type f -exec du -h {} \;
