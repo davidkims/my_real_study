@@ -1,4 +1,4 @@
-name: CMake Cross-Platform Build + Artifacts + YAML Report
+name: CMake Cross-Platform Build + Artifacts + Report
 
 on:
   push:
@@ -127,19 +127,30 @@ jobs:
       working-directory: ${{ steps.vars.outputs.build-dir }}
       run: ctest --build-config ${{ matrix.build_type }} --output-on-failure
 
-    - name: 📦 Zip disk-slot contents
+    - name: 📦 Zip disk-slot contents (Linux)
+      if: runner.os != 'Windows'
       run: |
         cd disk-slot
-        zip -r ../disk-slot.zip .
+        zip -r "../disk-slot-${{ matrix.os }}-${{ matrix.c_compiler }}.zip" .
         cd ..
 
-    - name: 📁 Upload zip as artifact
+    - name: 📦 Zip disk-slot contents (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $archive = "disk-slot-${{ matrix.os }}-${{ matrix.c_compiler }}.zip"
+        Compress-Archive -Path "disk-slot\*" -DestinationPath $archive -Force
+
+    - name: 📤 Upload zip artifact
       uses: actions/upload-artifact@v4
       with:
-        name: disk-slot-archive
-        path: disk-slot.zip
+        name: disk-slot-${{ matrix.os }}-${{ matrix.c_compiler }}
+        path: disk-slot-${{ matrix.os }}-${{ matrix.c_compiler }}.zip
+        if-no-files-found: ignore
+        compression-level: 6
+        overwrite: true
 
-    - name: 🔍 Lint .github/workflows and create YAML error report
+    - name: 🔍 YAML 오류 분석 보고서 생성 (Linux)
       if: runner.os == 'Linux'
       run: |
         mkdir -p reports
@@ -147,13 +158,14 @@ jobs:
         echo "분석 대상 디렉토리: .github/workflows" >> reports/workflow_report.md
         echo "작성 시간: $(date)" >> reports/workflow_report.md
         echo "" >> reports/workflow_report.md
-        yamllint .github/workflows > reports/raw.log || true
-        cat reports/raw.log >> reports/workflow_report.md
+        yamllint .github/workflows > reports/yaml-check.log || true
+        cat reports/yaml-check.log >> reports/workflow_report.md
+        echo "" >> reports/workflow_report.md
         echo "✅ 보고서 생성 완료"
 
-    - name: 📤 Upload YAML error report
+    - name: 📤 업로드 - YAML 오류 보고서
       if: runner.os == 'Linux'
       uses: actions/upload-artifact@v4
       with:
-        name: workflow-error-report
+        name: workflow-yaml-error-report
         path: reports/workflow_report.md
