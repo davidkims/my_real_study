@@ -1,4 +1,4 @@
-name: CMake Cross-Platform Build + Artifacts + YAML Report
+name: CMake Cross-Platform Full Build
 
 on:
   push:
@@ -35,137 +35,98 @@ jobs:
             c_compiler: cl
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Install Clang (Linux)
-      if: matrix.c_compiler == 'clang' && runner.os == 'Linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y clang lldb lld libc++-dev libc++abi-dev
+      - name: Install Clang and SQLite (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lldb lld libc++-dev libc++abi-dev sqlite3 zip yamllint
 
-    - name: Create disk slot and files (Linux)
-      if: runner.os != 'Windows'
-      shell: bash
-      run: |
-        SLOT_DIR="disk-slot/slot-$(date +%Y%m%d-%H%M%S)"
-        mkdir -p "$SLOT_DIR/cmake_project" "$SLOT_DIR/db"
-        echo "$SLOT_DIR" > slot-dir.txt
+      - name: Create disk slot and files
+        shell: bash
+        run: |
+          SLOT_DIR="disk-slot/slot-$(date +%Y%m%d-%H%M%S)"
+          mkdir -p "$SLOT_DIR/cmake_project" "$SLOT_DIR/db" "reports"
+          echo "$SLOT_DIR" > slot-dir.txt
 
-        echo 'cmake_minimum_required(VERSION 3.10)' > "$SLOT_DIR/cmake_project/CMakeLists.txt"
-        echo 'project(HelloWorld)' >> "$SLOT_DIR/cmake_project/CMakeLists.txt"
-        echo 'enable_testing()' >> "$SLOT_DIR/cmake_project/CMakeLists.txt"
-        echo 'add_executable(hello main.cpp)' >> "$SLOT_DIR/cmake_project/CMakeLists.txt"
-        echo 'add_test(NAME HelloTest COMMAND hello)' >> "$SLOT_DIR/cmake_project/CMakeLists.txt"
+          echo 'cmake_minimum_required(VERSION 3.10)' > "$SLOT_DIR/cmake_project/CMakeLists.txt"
+          echo 'project(HelloWorld)' >> "$SLOT_DIR/cmake_project/CMakeLists.txt"
+          echo 'enable_testing()' >> "$SLOT_DIR/cmake_project/CMakeLists.txt"
+          echo 'add_executable(hello main.cpp)' >> "$SLOT_DIR/cmake_project/CMakeLists.txt"
+          echo 'add_test(NAME HelloTest COMMAND hello)' >> "$SLOT_DIR/cmake_project/CMakeLists.txt"
 
-        echo '#include <iostream>' > "$SLOT_DIR/cmake_project/main.cpp"
-        echo 'int main() { std::cout << "Hello, world!\\n"; return 0; }' >> "$SLOT_DIR/cmake_project/main.cpp"
+          echo '#include <iostream>' > "$SLOT_DIR/cmake_project/main.cpp"
+          echo 'int main() { std::cout << "Hello, world!\\n"; return 0; }' >> "$SLOT_DIR/cmake_project/main.cpp"
 
-        echo 'CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, email TEXT);' > "$SLOT_DIR/db/init.sql"
-        echo "INSERT INTO users VALUES(1, 'Alice', 'alice@example.com');" >> "$SLOT_DIR/db/init.sql"
-        echo "INSERT INTO users VALUES(2, 'Bob', 'bob@example.com');" >> "$SLOT_DIR/db/init.sql"
+          echo 'CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, email TEXT);' > "$SLOT_DIR/db/init.sql"
+          echo "INSERT INTO users VALUES(1, 'Alice', 'alice@example.com');" >> "$SLOT_DIR/db/init.sql"
+          echo "INSERT INTO users VALUES(2, 'Bob', 'bob@example.com');" >> "$SLOT_DIR/db/init.sql"
 
-        echo "slot-dir=$SLOT_DIR" >> "$GITHUB_ENV"
+          echo "slot-dir=$SLOT_DIR" >> "$GITHUB_ENV"
 
-    - name: Create disk slot and files (Windows)
-      if: runner.os == 'Windows'
-      shell: pwsh
-      run: |
-        $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-        $slotDir = "disk-slot/slot-$timestamp"
-        New-Item -ItemType Directory -Path "$slotDir/cmake_project" -Force | Out-Null
-        New-Item -ItemType Directory -Path "$slotDir/db" -Force | Out-Null
+      - name: Init SQLite DB (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sqlite3 ${{ env.slot-dir }}/db/test.db < ${{ env.slot-dir }}/db/init.sql
+          sqlite3 ${{ env.slot-dir }}/db/test.db "SELECT * FROM users;"
 
-        Set-Content -Path "$slotDir/cmake_project/CMakeLists.txt" -Value @(
-          'cmake_minimum_required(VERSION 3.10)',
-          'project(HelloWorld)',
-          'enable_testing()',
-          'add_executable(hello main.cpp)',
-          'add_test(NAME HelloTest COMMAND hello)'
-        )
+      - name: Set build directory
+        id: vars
+        shell: bash
+        run: echo "build-dir=${{ env.slot-dir }}/build" >> "$GITHUB_OUTPUT"
 
-        Set-Content -Path "$slotDir/cmake_project/main.cpp" -Value @(
-          '#include <iostream>',
-          'int main() { std::cout << "Hello, world!\n"; return 0; }'
-        )
+      - name: Configure CMake
+        run: >
+          cmake -B ${{ steps.vars.outputs.build-dir }}
+          -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
+          -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -S ${{ env.slot-dir }}/cmake_project
 
-        Set-Content -Path "$slotDir/db/init.sql" -Value @(
-          'CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, email TEXT);',
-          "INSERT INTO users VALUES(1, 'Alice', 'alice@example.com');",
-          "INSERT INTO users VALUES(2, 'Bob', 'bob@example.com');"
-        )
+      - name: Build
+        run: cmake --build ${{ steps.vars.outputs.build-dir }} --config ${{ matrix.build_type }}
 
-        echo "slot-dir=$slotDir" >> $env:GITHUB_ENV
+      - name: Run Tests
+        working-directory: ${{ steps.vars.outputs.build-dir }}
+        run: ctest --build-config ${{ matrix.build_type }} --output-on-failure
 
-    - name: Install SQLite3 (Linux only)
-      if: runner.os != 'Windows'
-      run: sudo apt-get install -y sqlite3
+      - name: Zip disk-slot (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cd disk-slot
+          zip -r "../disk-slot-${{ matrix.os }}-${{ matrix.c_compiler }}.zip" .
+          cd ..
 
-    - name: Init SQLite DB (Linux only)
-      if: runner.os != 'Windows'
-      run: |
-        sqlite3 ${{ env.slot-dir }}/db/test.db < ${{ env.slot-dir }}/db/init.sql
-        sqlite3 ${{ env.slot-dir }}/db/test.db "SELECT * FROM users;"
+      - name: Zip disk-slot (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archive = "disk-slot-${{ matrix.os }}-${{ matrix.c_compiler }}.zip"
+          Compress-Archive -Path "disk-slot\*" -DestinationPath $archive -Force
 
-    - name: Set build directory
-      id: vars
-      shell: bash
-      run: echo "build-dir=${{ env.slot-dir }}/build" >> "$GITHUB_OUTPUT"
+      - name: Upload zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: disk-slot-${{ github.run_id }}-${{ matrix.os }}-${{ matrix.c_compiler }}
+          path: disk-slot-${{ matrix.os }}-${{ matrix.c_compiler }}.zip
+          overwrite: true
 
-    - name: Configure CMake
-      run: >
-        cmake -B ${{ steps.vars.outputs.build-dir }}
-        -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
-        -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
-        -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-        -S ${{ env.slot-dir }}/cmake_project
+      - name: Generate YAML Lint Report (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo "# 워크플로우 YAML 문법 오류 보고서" > reports/workflow_report.md
+          echo "분석 디렉토리: .github/workflows" >> reports/workflow_report.md
+          echo "생성 시간: $(date)" >> reports/workflow_report.md
+          echo "" >> reports/workflow_report.md
+          yamllint .github/workflows > reports/yaml-check.log || true
+          cat reports/yaml-check.log >> reports/workflow_report.md
 
-    - name: Build
-      run: cmake --build ${{ steps.vars.outputs.build-dir }} --config ${{ matrix.build_type }}
-
-    - name: Run Tests
-      working-directory: ${{ steps.vars.outputs.build-dir }}
-      run: ctest --build-config ${{ matrix.build_type }} --output-on-failure
-
-    - name: 📦 Zip disk-slot contents (Linux)
-      if: runner.os != 'Windows'
-      run: |
-        cd disk-slot
-        zip -r "../disk-slot-${{ matrix.os }}-${{ matrix.c_compiler }}.zip" .
-        cd ..
-
-    - name: 📦 Zip disk-slot contents (Windows)
-      if: runner.os == 'Windows'
-      shell: pwsh
-      run: |
-        $archive = "disk-slot-${{ matrix.os }}-${{ matrix.c_compiler }}.zip"
-        Compress-Archive -Path "disk-slot\*" -DestinationPath $archive -Force
-
-    - name: 📤 Upload zip artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: disk-slot-${{ github.run_id }}-${{ matrix.os }}-${{ matrix.c_compiler }}
-        path: disk-slot-${{ matrix.os }}-${{ matrix.c_compiler }}.zip
-        if-no-files-found: ignore
-        overwrite: true
-
-    - name: 🔍 YAML 오류 분석 보고서 생성 (Linux)
-      if: runner.os == 'Linux'
-      run: |
-        mkdir -p reports
-        echo "# 워크플로우 YAML 문법 오류 보고서" > reports/workflow_report.md
-        echo "분석 디렉토리: .github/workflows" >> reports/workflow_report.md
-        echo "생성 시간: $(date)" >> reports/workflow_report.md
-        echo "" >> reports/workflow_report.md
-        yamllint .github/workflows > reports/yaml-check.log || true
-        cat reports/yaml-check.log >> reports/workflow_report.md
-        echo "✅ 보고서 생성 완료"
-
-    - name: 📤 업로드 - YAML 오류 보고서
-      if: runner.os == 'Linux'
-      uses: actions/upload-artifact@v4
-      with:
-        name: workflow-yaml-error-report-${{ github.run_id }}-${{ matrix.os }}-${{ matrix.c_compiler }}
-        path: reports/workflow_report.md
-        if-no-files-found: ignore
-        overwrite: true
+      - name: Upload YAML report
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-yaml-error-report-${{ github.run_id }}-${{ matrix.os }}-${{ matrix.c_compiler }}
+          path: reports/workflow_report.md
+          overwrite: true
