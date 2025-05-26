@@ -1,10 +1,13 @@
-name: CMake Cross-Platform Full Build
+name: CMake Cross-Platform Build + Artifacts + YAML Report + Pages
 
 on:
   push:
     branches: ["main"]
   pull_request:
     branches: ["main"]
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -48,7 +51,7 @@ jobs:
         shell: bash
         run: |
           SLOT_DIR="disk-slot/slot-$(date +%Y%m%d-%H%M%S)"
-          mkdir -p "$SLOT_DIR/cmake_project" "$SLOT_DIR/db" "reports"
+          mkdir -p "$SLOT_DIR/cmake_project" "$SLOT_DIR/db" "reports" "gh-pages/install" "gh-pages/generate" "gh-pages/add"
           echo "$SLOT_DIR" > slot-dir.txt
 
           echo 'cmake_minimum_required(VERSION 3.10)' > "$SLOT_DIR/cmake_project/CMakeLists.txt"
@@ -63,6 +66,10 @@ jobs:
           echo 'CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, email TEXT);' > "$SLOT_DIR/db/init.sql"
           echo "INSERT INTO users VALUES(1, 'Alice', 'alice@example.com');" >> "$SLOT_DIR/db/init.sql"
           echo "INSERT INTO users VALUES(2, 'Bob', 'bob@example.com');" >> "$SLOT_DIR/db/init.sql"
+
+          cp "$SLOT_DIR/cmake_project"/* gh-pages/install/
+          cp "$SLOT_DIR/db/init.sql" gh-pages/generate/
+          echo "배포 시점: $(date)" > gh-pages/add/deployment_log.txt
 
           echo "slot-dir=$SLOT_DIR" >> "$GITHUB_ENV"
 
@@ -93,7 +100,7 @@ jobs:
         run: ctest --build-config ${{ matrix.build_type }} --output-on-failure
 
       - name: Zip disk-slot (Linux)
-        if: runner.os == 'Linux'
+        if: runner.os != 'Windows'
         run: |
           cd disk-slot
           zip -r "../disk-slot-${{ matrix.os }}-${{ matrix.c_compiler }}.zip" .
@@ -130,3 +137,13 @@ jobs:
           name: workflow-yaml-error-report-${{ github.run_id }}-${{ matrix.os }}-${{ matrix.c_compiler }}
           path: reports/workflow_report.md
           overwrite: true
+
+      - name: Deploy to GitHub Pages (main branch only, Linux only)
+        if: runner.os == 'Linux' && github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./gh-pages
+          publish_branch: gh-pages
+          commit_message: "자동 배포: ${{ github.run_id }} / ${{ matrix.os }} / ${{ matrix.c_compiler }}"
+          keep_files: true
