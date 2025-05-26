@@ -69,7 +69,6 @@ jobs:
           echo "# Placeholder CI workflow" > .github/workflows/ci/ci.yml
           echo "# Placeholder utils workflow" > .github/workflows/utils/utils.yml
 
-          # 필수 파일 생성 (없을 경우 대비)
           mkdir -p "$SLOT_DIR/db" "$SLOT_DIR/cmake_project"
           touch "$SLOT_DIR/db/init.sql"
           touch "$SLOT_DIR/cmake_project/CMakeLists.txt"
@@ -174,4 +173,4 @@ jobs:
           commit_message: "자동 배포: ${{ github.run_id }} / ${{ matrix.os }} / ${{ matrix.c_compiler }}"
           keep_files: true
           allow_empty_commit: true
-          tag_name: v${{ github.run_number }}
+          tag_name: v${{ github.run_id }}-${{ matrix.os }}-${{ matrix.c_compiler }}
