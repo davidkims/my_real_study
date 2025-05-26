@@ -1,10 +1,10 @@
-name: CMake Cross-Platform Build
+name: CMake Cross-Platform Build + Artifacts + YAML Report
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
   build:
@@ -126,3 +126,34 @@ jobs:
     - name: Run Tests
       working-directory: ${{ steps.vars.outputs.build-dir }}
       run: ctest --build-config ${{ matrix.build_type }} --output-on-failure
+
+    - name: 📦 Zip disk-slot contents
+      run: |
+        cd disk-slot
+        zip -r ../disk-slot.zip .
+        cd ..
+
+    - name: 📁 Upload zip as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: disk-slot-archive
+        path: disk-slot.zip
+
+    - name: 🔍 Lint .github/workflows and create YAML error report
+      if: runner.os == 'Linux'
+      run: |
+        mkdir -p reports
+        echo "# 워크플로우 YAML 문법 오류 보고서" > reports/workflow_report.md
+        echo "분석 대상 디렉토리: .github/workflows" >> reports/workflow_report.md
+        echo "작성 시간: $(date)" >> reports/workflow_report.md
+        echo "" >> reports/workflow_report.md
+        yamllint .github/workflows > reports/raw.log || true
+        cat reports/raw.log >> reports/workflow_report.md
+        echo "✅ 보고서 생성 완료"
+
+    - name: 📤 Upload YAML error report
+      if: runner.os == 'Linux'
+      uses: actions/upload-artifact@v4
+      with:
+        name: workflow-error-report
+        path: reports/workflow_report.md
