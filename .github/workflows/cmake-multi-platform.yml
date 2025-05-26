@@ -1,4 +1,4 @@
-name: CMake Cross-Platform Build + Artifacts + Report
+name: CMake Cross-Platform Build + Artifacts + YAML Report
 
 on:
   push:
@@ -44,7 +44,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y clang lldb lld libc++-dev libc++abi-dev
 
-    - name: Create build slot and files (Linux)
+    - name: Create disk slot and files (Linux)
       if: runner.os != 'Windows'
       shell: bash
       run: |
@@ -67,7 +67,7 @@ jobs:
 
         echo "slot-dir=$SLOT_DIR" >> "$GITHUB_ENV"
 
-    - name: Create build slot and files (Windows)
+    - name: Create disk slot and files (Windows)
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
@@ -107,7 +107,7 @@ jobs:
         sqlite3 ${{ env.slot-dir }}/db/test.db < ${{ env.slot-dir }}/db/init.sql
         sqlite3 ${{ env.slot-dir }}/db/test.db "SELECT * FROM users;"
 
-    - name: Set build dir
+    - name: Set build directory
       id: vars
       shell: bash
       run: echo "build-dir=${{ env.slot-dir }}/build" >> "$GITHUB_OUTPUT"
@@ -144,10 +144,9 @@ jobs:
     - name: 📤 Upload zip artifact
       uses: actions/upload-artifact@v4
       with:
-        name: disk-slot-${{ matrix.os }}-${{ matrix.c_compiler }}
+        name: disk-slot-${{ github.run_id }}-${{ matrix.os }}-${{ matrix.c_compiler }}
         path: disk-slot-${{ matrix.os }}-${{ matrix.c_compiler }}.zip
         if-no-files-found: ignore
-        compression-level: 6
         overwrite: true
 
     - name: 🔍 YAML 오류 분석 보고서 생성 (Linux)
@@ -155,17 +154,18 @@ jobs:
       run: |
         mkdir -p reports
         echo "# 워크플로우 YAML 문법 오류 보고서" > reports/workflow_report.md
-        echo "분석 대상 디렉토리: .github/workflows" >> reports/workflow_report.md
-        echo "작성 시간: $(date)" >> reports/workflow_report.md
+        echo "분석 디렉토리: .github/workflows" >> reports/workflow_report.md
+        echo "생성 시간: $(date)" >> reports/workflow_report.md
         echo "" >> reports/workflow_report.md
         yamllint .github/workflows > reports/yaml-check.log || true
         cat reports/yaml-check.log >> reports/workflow_report.md
-        echo "" >> reports/workflow_report.md
         echo "✅ 보고서 생성 완료"
 
     - name: 📤 업로드 - YAML 오류 보고서
       if: runner.os == 'Linux'
       uses: actions/upload-artifact@v4
       with:
-        name: workflow-yaml-error-report
+        name: workflow-yaml-error-report-${{ github.run_id }}-${{ matrix.os }}-${{ matrix.c_compiler }}
         path: reports/workflow_report.md
+        if-no-files-found: ignore
+        overwrite: true
