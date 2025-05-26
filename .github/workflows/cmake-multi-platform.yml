@@ -133,6 +133,7 @@ jobs:
       - name: Generate YAML Lint Report (Linux)
         if: runner.os == 'Linux'
         run: |
+          mkdir -p reports
           echo "# 워크플로우 YAML 문법 오류 보고서" > reports/workflow_report.md
           echo "분석 디렉토리: .github/workflows" >> reports/workflow_report.md
           echo "생성 시간: $(date)" >> reports/workflow_report.md
