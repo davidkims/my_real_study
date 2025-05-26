@@ -45,14 +45,21 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang lldb lld libc++-dev libc++abi-dev sqlite3 zip yamllint
+          sudo apt-get install -y clang lldb lld libc++-dev libc++abi-dev sqlite3 zip yamllint coreutils
 
-      - name: Create disk slot and files
+      - name: Create all required directories and files
         shell: bash
         run: |
+          mkdir -p disk-slot gh-pages reports
           SLOT_DIR="disk-slot/slot-$(date +%Y%m%d-%H%M%S)"
-          mkdir -p "$SLOT_DIR/cmake_project" "$SLOT_DIR/db" "reports" "gh-pages/install" "gh-pages/generate" "gh-pages/add"
+          mkdir -p "$SLOT_DIR/cmake_project" "$SLOT_DIR/db" "gh-pages/install" "gh-pages/generate" "gh-pages/add"
           echo "$SLOT_DIR" > slot-dir.txt
+
+          # 필수 파일 생성 (없을 경우 대비)
+          touch "$SLOT_DIR/db/init.sql"
+          touch "$SLOT_DIR/cmake_project/CMakeLists.txt"
+          touch "$SLOT_DIR/cmake_project/main.cpp"
+          touch gh-pages/install/README.md gh-pages/generate/README.md gh-pages/add/README.md
 
           echo 'cmake_minimum_required(VERSION 3.10)' > "$SLOT_DIR/cmake_project/CMakeLists.txt"
           echo 'project(HelloWorld)' >> "$SLOT_DIR/cmake_project/CMakeLists.txt"
@@ -63,7 +70,7 @@ jobs:
           echo '#include <iostream>' > "$SLOT_DIR/cmake_project/main.cpp"
           echo 'int main() { std::cout << "Hello, world!\\n"; return 0; }' >> "$SLOT_DIR/cmake_project/main.cpp"
 
-          echo 'CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, email TEXT);' > "$SLOT_DIR/db/init.sql"
+          echo 'CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, name TEXT, email TEXT);' > "$SLOT_DIR/db/init.sql"
           echo "INSERT INTO users VALUES(1, 'Alice', 'alice@example.com');" >> "$SLOT_DIR/db/init.sql"
           echo "INSERT INTO users VALUES(2, 'Bob', 'bob@example.com');" >> "$SLOT_DIR/db/init.sql"
 
@@ -76,13 +83,16 @@ jobs:
       - name: Init SQLite DB (Linux)
         if: runner.os == 'Linux'
         run: |
+          test -f ${{ env.slot-dir }}/db/init.sql || (echo "[ERROR] init.sql 파일이 없습니다." && exit 1)
           sqlite3 ${{ env.slot-dir }}/db/test.db < ${{ env.slot-dir }}/db/init.sql
           sqlite3 ${{ env.slot-dir }}/db/test.db "SELECT * FROM users;"
 
       - name: Set build directory
         id: vars
         shell: bash
-        run: echo "build-dir=${{ env.slot-dir }}/build" >> "$GITHUB_OUTPUT"
+        run: |
+          mkdir -p ${{ env.slot-dir }}/build
+          echo "build-dir=${{ env.slot-dir }}/build" >> "$GITHUB_OUTPUT"
 
       - name: Configure CMake
         run: >
