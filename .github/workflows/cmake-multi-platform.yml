@@ -174,3 +174,4 @@ jobs:
           commit_message: "자동 배포: ${{ github.run_id }} / ${{ matrix.os }} / ${{ matrix.c_compiler }}"
           keep_files: true
           allow_empty_commit: true
+          tag_name: v${{ github.run_number }}
