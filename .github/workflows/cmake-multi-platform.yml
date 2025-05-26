@@ -1,10 +1,10 @@
-name: CMake Multi-Platform + DB + Disk Slot
+name: CMake Cross-Platform Build
 
 on:
   push:
-    branches: ["main"]
+    branches: [ "main" ]
   pull_request:
-    branches: ["main"]
+    branches: [ "main" ]
 
 jobs:
   build:
@@ -38,88 +38,62 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Install Clang (Linux only)
+    - name: Install Clang (Linux)
       if: matrix.c_compiler == 'clang' && runner.os == 'Linux'
       run: |
         sudo apt-get update
         sudo apt-get install -y clang lldb lld libc++-dev libc++abi-dev
 
-    - name: Prepare disk slot and files (Linux)
+    - name: Create build slot and files (Linux)
       if: runner.os != 'Windows'
       shell: bash
       run: |
         SLOT_DIR="disk-slot/slot-$(date +%Y%m%d-%H%M%S)"
-        mkdir -p "$SLOT_DIR/install" "$SLOT_DIR/cmake_project" "$SLOT_DIR/db"
+        mkdir -p "$SLOT_DIR/cmake_project" "$SLOT_DIR/db"
+        echo "$SLOT_DIR" > slot-dir.txt
 
-        cat > "$SLOT_DIR/cmake_project/CMakeLists.txt" <<'EOF'
-cmake_minimum_required(VERSION 3.10)
-project(HelloWorld)
+        echo 'cmake_minimum_required(VERSION 3.10)' > "$SLOT_DIR/cmake_project/CMakeLists.txt"
+        echo 'project(HelloWorld)' >> "$SLOT_DIR/cmake_project/CMakeLists.txt"
+        echo 'enable_testing()' >> "$SLOT_DIR/cmake_project/CMakeLists.txt"
+        echo 'add_executable(hello main.cpp)' >> "$SLOT_DIR/cmake_project/CMakeLists.txt"
+        echo 'add_test(NAME HelloTest COMMAND hello)' >> "$SLOT_DIR/cmake_project/CMakeLists.txt"
 
-enable_testing()
+        echo '#include <iostream>' > "$SLOT_DIR/cmake_project/main.cpp"
+        echo 'int main() { std::cout << "Hello, world!\\n"; return 0; }' >> "$SLOT_DIR/cmake_project/main.cpp"
 
-add_executable(hello main.cpp)
-
-add_test(NAME HelloTest COMMAND hello)
-EOF
-
-        cat > "$SLOT_DIR/cmake_project/main.cpp" <<'EOF'
-#include <iostream>
-int main() {
-    std::cout << "Hello, world!" << std::endl;
-    return 0;
-}
-EOF
-
-        cat > "$SLOT_DIR/db/init.sql" <<'EOF'
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    email TEXT UNIQUE NOT NULL
-);
-INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com');
-INSERT INTO users (name, email) VALUES ('Bob', 'bob@example.com');
-EOF
+        echo 'CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, email TEXT);' > "$SLOT_DIR/db/init.sql"
+        echo "INSERT INTO users VALUES(1, 'Alice', 'alice@example.com');" >> "$SLOT_DIR/db/init.sql"
+        echo "INSERT INTO users VALUES(2, 'Bob', 'bob@example.com');" >> "$SLOT_DIR/db/init.sql"
 
         echo "slot-dir=$SLOT_DIR" >> "$GITHUB_ENV"
 
-    - name: Prepare disk slot and files (Windows)
+    - name: Create build slot and files (Windows)
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
         $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
         $slotDir = "disk-slot/slot-$timestamp"
-        New-Item -ItemType Directory -Force -Path "$slotDir/install"
-        New-Item -ItemType Directory -Force -Path "$slotDir/cmake_project"
-        New-Item -ItemType Directory -Force -Path "$slotDir/db"
+        New-Item -ItemType Directory -Path "$slotDir/cmake_project" -Force | Out-Null
+        New-Item -ItemType Directory -Path "$slotDir/db" -Force | Out-Null
 
-        @"
-cmake_minimum_required(VERSION 3.10)
-project(HelloWorld)
+        Set-Content -Path "$slotDir/cmake_project/CMakeLists.txt" -Value @(
+          'cmake_minimum_required(VERSION 3.10)',
+          'project(HelloWorld)',
+          'enable_testing()',
+          'add_executable(hello main.cpp)',
+          'add_test(NAME HelloTest COMMAND hello)'
+        )
 
-enable_testing()
+        Set-Content -Path "$slotDir/cmake_project/main.cpp" -Value @(
+          '#include <iostream>',
+          'int main() { std::cout << "Hello, world!\n"; return 0; }'
+        )
 
-add_executable(hello main.cpp)
-
-add_test(NAME HelloTest COMMAND hello)
-"@ | Out-File -Encoding UTF8 "$slotDir/cmake_project/CMakeLists.txt"
-
-        @"
-#include <iostream>
-int main() {
-    std::cout << "Hello, world!" << std::endl;
-    return 0;
-}
-"@ | Out-File -Encoding UTF8 "$slotDir/cmake_project/main.cpp"
-
-        @"
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    email TEXT UNIQUE NOT NULL
-);
-INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com');
-INSERT INTO users (name, email) VALUES ('Bob', 'bob@example.com');
-"@ | Out-File -Encoding UTF8 "$slotDir/db/init.sql"
+        Set-Content -Path "$slotDir/db/init.sql" -Value @(
+          'CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, email TEXT);',
+          "INSERT INTO users VALUES(1, 'Alice', 'alice@example.com');",
+          "INSERT INTO users VALUES(2, 'Bob', 'bob@example.com');"
+        )
 
         echo "slot-dir=$slotDir" >> $env:GITHUB_ENV
 
@@ -127,14 +101,13 @@ INSERT INTO users (name, email) VALUES ('Bob', 'bob@example.com');
       if: runner.os != 'Windows'
       run: sudo apt-get install -y sqlite3
 
-    - name: Initialize SQLite DB (Linux only)
+    - name: Init SQLite DB (Linux only)
       if: runner.os != 'Windows'
       run: |
         sqlite3 ${{ env.slot-dir }}/db/test.db < ${{ env.slot-dir }}/db/init.sql
-        echo "✅ DB contents:"
         sqlite3 ${{ env.slot-dir }}/db/test.db "SELECT * FROM users;"
 
-    - name: Set build directory
+    - name: Set build dir
       id: vars
       shell: bash
       run: echo "build-dir=${{ env.slot-dir }}/build" >> "$GITHUB_OUTPUT"
