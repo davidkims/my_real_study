@@ -70,6 +70,7 @@ jobs:
           echo "# Placeholder utils workflow" > .github/workflows/utils/utils.yml
 
           # 필수 파일 생성 (없을 경우 대비)
+          mkdir -p "$SLOT_DIR/db" "$SLOT_DIR/cmake_project"
           touch "$SLOT_DIR/db/init.sql"
           touch "$SLOT_DIR/cmake_project/CMakeLists.txt"
           touch "$SLOT_DIR/cmake_project/main.cpp"
@@ -172,4 +173,4 @@ jobs:
           publish_branch: gh-pages
           commit_message: "자동 배포: ${{ github.run_id }} / ${{ matrix.os }} / ${{ matrix.c_compiler }}"
           keep_files: true
-          force: true
+          allow_empty_commit: true
