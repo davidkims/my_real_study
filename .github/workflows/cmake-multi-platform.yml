@@ -55,6 +55,20 @@ jobs:
           mkdir -p "$SLOT_DIR/cmake_project" "$SLOT_DIR/db" "gh-pages/install" "gh-pages/generate" "gh-pages/add"
           echo "$SLOT_DIR" > slot-dir.txt
 
+          # .github/workflows 내부 폴더 및 파일 생성
+          mkdir -p .github/workflows/lint .github/workflows/security .github/workflows/deploy .github/workflows/ci .github/workflows/utils
+          touch .github/workflows/lint/.gitkeep
+          touch .github/workflows/security/.gitkeep
+          touch .github/workflows/deploy/.gitkeep
+          touch .github/workflows/ci/.gitkeep
+          touch .github/workflows/utils/.gitkeep
+
+          echo "# Placeholder lint workflow" > .github/workflows/lint/lint.yml
+          echo "# Placeholder security workflow" > .github/workflows/security/security.yml
+          echo "# Placeholder deploy workflow" > .github/workflows/deploy/deploy.yml
+          echo "# Placeholder CI workflow" > .github/workflows/ci/ci.yml
+          echo "# Placeholder utils workflow" > .github/workflows/utils/utils.yml
+
           # 필수 파일 생성 (없을 경우 대비)
           touch "$SLOT_DIR/db/init.sql"
           touch "$SLOT_DIR/cmake_project/CMakeLists.txt"
@@ -158,3 +172,4 @@ jobs:
           publish_branch: gh-pages
           commit_message: "자동 배포: ${{ github.run_id }} / ${{ matrix.os }} / ${{ matrix.c_compiler }}"
           keep_files: true
+          force: true
