@@ -1,4 +1,4 @@
-name: SecurityCodeScan with Swift Setup and Build
+name: SecurityCodeScan with Swift Example
 
 on:
   push:
@@ -15,7 +15,7 @@ jobs:
       - name: ⬇️ Checkout repository
         uses: actions/checkout@v4
 
-      - name: 📁 Create .NET Project and Swift Directories
+      - name: 📁 Create .NET and Swift Project Directories
         run: |
           mkdir Project
           cd Project
@@ -36,23 +36,12 @@ jobs:
       - name: ⚙️ Setup MSBuild
         uses: microsoft/setup-msbuild@v1.0.2
 
-      - name: 🔍 Detect Latest Swift ZIP URL
-        id: detect-swift
-        run: |
-          $html = Invoke-WebRequest -Uri "https://download.swift.org/development/windows10/" | Select-Object -ExpandProperty Content
-          $matches = [regex]::Matches($html, "href=""(swift-5\.[\d\.-]+-DEVELOPMENT-SNAPSHOT-[\d-]+-windows10.zip)""")
-          if ($matches.Count -eq 0) { throw "Swift ZIP not found." }
-          $latest = $matches[$matches.Count - 1].Groups[1].Value
-          $url = "https://download.swift.org/development/windows10/$latest"
-          echo "SWIFT_ZIP_URL=$url" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          echo "Latest Swift URL: $url"
-        shell: powershell
-
       - name: 📦 Download and Extract Swift
         run: |
+          $url = "https://download.swift.org/development/windows10/swift-5.10-DEVELOPMENT-SNAPSHOT-2024-04-30-a/swift-5.10-DEVELOPMENT-SNAPSHOT-2024-04-30-a-windows10.zip"
           $zipPath = "$env:RUNNER_TEMP\swift.zip"
           $extractPath = "C:\swift"
-          Invoke-WebRequest -Uri "$env:SWIFT_ZIP_URL" -OutFile $zipPath
+          Invoke-WebRequest -Uri $url -OutFile $zipPath
           Expand-Archive -Path $zipPath -DestinationPath $extractPath
         shell: powershell
 
@@ -67,31 +56,21 @@ jobs:
         run: swift --version
         shell: pwsh
 
-      - name: 🧾 Create Example Swift File
+      - name: 🧾 Create and Build Swift App
         run: |
           cd Project/swiftapp
           swift package init --type executable
-          echo 'print("✅ Hello from Swift!")' > Sources/swiftapp/main.swift
-        shell: pwsh
-
-      - name: 🛠 Build Swift Project
-        run: |
-          cd Project/swiftapp
+          echo 'print("✅ Hello from Swift on Windows!")' > Sources/swiftapp/main.swift
           swift build
-        shell: pwsh
-
-      - name: 🚀 Run Swift Executable
-        run: |
-          cd Project/swiftapp
           swift run
         shell: pwsh
 
-      - name: 🔍 Add SecurityCodeScan Analyzer
+      - name: 🔍 Add SecurityCodeScan Analyzers
         uses: security-code-scan/security-code-scan-add-action@f8ff4f2763ed6f229eded80b1f9af82ae7f32a0d
         with:
           solution-or-project: ./Project/src/Project.csproj
 
-      - name: 📦 Restore .NET Dependencies
+      - name: 📦 Restore NuGet Packages
         run: dotnet restore ./Project/src/Project.csproj
         shell: pwsh
 
@@ -105,7 +84,7 @@ jobs:
           project: ./Project/src/Project.csproj
           output: ./Project/reports/security-scan-results.sarif
 
-      - name: ☁️ Upload SARIF to GitHub
+      - name: ☁️ Upload SARIF to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: ./Project/reports/security-scan-results.sarif
