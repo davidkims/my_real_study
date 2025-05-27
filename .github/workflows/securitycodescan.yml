@@ -1,4 +1,4 @@
-name: SecurityCodeScan with Swift 6.0 (Stable EXE Install)
+name: SecurityCodeScan with Swift 6.1.1 (Windows)
 
 on:
   push:
@@ -15,16 +15,16 @@ jobs:
       - name: ⬇️ Checkout repository
         uses: actions/checkout@v4
 
-      - name: 📁 Create project folders (.NET + Swift)
+      - name: 📁 Create project directories
         run: |
           mkdir Project
           mkdir Project/logs
           mkdir Project/reports
-          dotnet new console --output Project/src --framework net6.0
           mkdir Project/swiftapp
+          dotnet new console --output Project/src --framework net6.0
         shell: pwsh
 
-      - name: ⚙️ Setup .NET SDK
+      - name: ⚙️ Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '6.x'
@@ -35,13 +35,13 @@ jobs:
       - name: ⚙️ Setup MSBuild
         uses: microsoft/setup-msbuild@v1.0.2
 
-      - name: 📦 Download and install Swift 6.0
+      - name: 📦 Download and Install Swift 6.1.1
         run: |
-          $url = "https://download.swift.org/swift-6.0-release/swift-6.0-RELEASE-windows10.exe"
+          $url = "https://download.swift.org/swift-6.1.1-release/swift-6.1.1-RELEASE-windows10.exe"
           $exePath = "$env:RUNNER_TEMP\swift-installer.exe"
-          Write-Host "⬇️ Downloading Swift 6.0 installer..."
+          Write-Host "⬇️ Downloading Swift 6.1.1 installer from $url"
           Invoke-WebRequest -Uri $url -OutFile $exePath -ErrorAction Stop
-          Write-Host "🚀 Installing Swift..."
+          Write-Host "🚀 Installing Swift silently..."
           Start-Process -FilePath $exePath -ArgumentList "/quiet" -Wait
         shell: powershell
 
@@ -49,25 +49,23 @@ jobs:
         run: |
           $toolchainPath = Get-ChildItem -Directory "C:\Library\Developer\Toolchains" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
           if (-not $toolchainPath) {
-            Write-Error "❌ Swift 설치 경로를 찾을 수 없습니다. 설치가 실패했을 수 있습니다."
+            Write-Error "❌ Swift install path not found. Check installation log or permissions."
             exit 1
           }
           $binPath = "$($toolchainPath.FullName)\usr\bin"
           echo "##[add-path]$binPath"
           Write-Host "✅ Swift path added to PATH: $binPath"
-          Write-Host "🛠 If you still get 'swift: not recognized', manually verify the PATH in Actions log."
         shell: powershell
 
       - name: ✅ Confirm Swift Version
-        run: |
-          swift --version
+        run: swift --version
         shell: pwsh
 
-      - name: 🧾 Create & build Swift sample project
+      - name: 🧾 Create and Run Swift Example
         run: |
           cd Project/swiftapp
           swift package init --type executable
-          Set-Content -Path "Sources/swiftapp/main.swift" -Value 'print("✅ Hello from Swift 6.0!")'
+          echo 'print("✅ Hello from Swift 6.1.1!")' > Sources/swiftapp/main.swift
           swift build
           swift run
         shell: pwsh
@@ -85,7 +83,7 @@ jobs:
         run: dotnet build ./Project/src/Project.csproj --no-restore
         shell: pwsh
 
-      - name: 📄 Convert Security Scan Results to SARIF
+      - name: 📄 Convert Scan Results to SARIF
         uses: security-code-scan/security-code-scan-results-action@cdb3d5e639054395e45bf401cba8688fcaf7a687
         with:
           project: ./Project/src/Project.csproj
