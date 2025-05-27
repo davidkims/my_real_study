@@ -1,4 +1,4 @@
-name: SecurityCodeScan Full Setup
+name: SecurityCodeScan with Swift
 
 on:
   push:
@@ -37,16 +37,8 @@ jobs:
       - name: ⚙️ Setup MSBuild
         uses: microsoft/setup-msbuild@v1.0.2
 
-      - name: 📦 Install Swift on Windows
-        run: |
-          Invoke-WebRequest -Uri https://download.swift.org/windows/Swift-5.9.2-Release/swift-5.9.2-RELEASE-windows10.exe -OutFile swift-installer.exe
-          Start-Process -FilePath .\swift-installer.exe -ArgumentList "/quiet" -Wait
-        shell: powershell
-
-      - name: 🛠 Add Swift to PATH (manual path setup)
-        run: |
-          $SwiftPath = "C:\Library\Developer\Toolchains\unknown-Asserts-development.xctoolchain\usr\bin"
-          echo "##[add-path]$SwiftPath"
+      - name: 📦 Install Swift using Chocolatey
+        run: choco install swift --version=5.9.1 -y
         shell: powershell
 
       - name: ✅ Confirm Swift Installation
