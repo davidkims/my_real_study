@@ -1,4 +1,4 @@
-name: SecurityCodeScan with Swift (Auto ZIP URL)
+name: SecurityCodeScan with Swift Setup and Build
 
 on:
   push:
@@ -6,27 +6,26 @@ on:
   pull_request:
     branches: ["main"]
   workflow_dispatch:
-  schedule:
-    - cron: '23 16 * * 6'
 
 jobs:
-  scs-scan:
+  scs-swift-job:
     runs-on: windows-latest
 
     steps:
       - name: ⬇️ Checkout repository
         uses: actions/checkout@v4
 
-      - name: 📁 Create .NET Project and Directories
+      - name: 📁 Create .NET Project and Swift Directories
         run: |
           mkdir Project
           cd Project
           dotnet new console --output src --framework net6.0
           mkdir logs
           mkdir reports
+          mkdir swiftapp
         shell: pwsh
 
-      - name: ⚙️ Setup .NET
+      - name: ⚙️ Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '6.x'
@@ -38,15 +37,15 @@ jobs:
         uses: microsoft/setup-msbuild@v1.0.2
 
       - name: 🔍 Detect Latest Swift ZIP URL
-        id: swift-url
+        id: detect-swift
         run: |
           $html = Invoke-WebRequest -Uri "https://download.swift.org/development/windows10/" | Select-Object -ExpandProperty Content
           $matches = [regex]::Matches($html, "href=""(swift-5\.[\d\.-]+-DEVELOPMENT-SNAPSHOT-[\d-]+-windows10.zip)""")
-          if ($matches.Count -eq 0) { throw "❌ 최신 Swift ZIP 파일을 찾을 수 없습니다." }
+          if ($matches.Count -eq 0) { throw "Swift ZIP not found." }
           $latest = $matches[$matches.Count - 1].Groups[1].Value
           $url = "https://download.swift.org/development/windows10/$latest"
           echo "SWIFT_ZIP_URL=$url" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          echo "✅ 최신 Swift ZIP 경로: $url"
+          echo "Latest Swift URL: $url"
         shell: powershell
 
       - name: 📦 Download and Extract Swift
@@ -59,22 +58,40 @@ jobs:
 
       - name: ➕ Add Swift to PATH
         run: |
-          $subdir = Get-ChildItem "C:\swift" | Where-Object { $_.PSIsContainer } | Sort-Object Name -Descending | Select-Object -First 1
-          $binPath = "C:\swift\$($subdir.Name)\usr\bin"
+          $dir = Get-ChildItem "C:\swift" | Where-Object { $_.PSIsContainer } | Sort-Object Name -Descending | Select-Object -First 1
+          $binPath = "C:\swift\$($dir.Name)\usr\bin"
           echo "##[add-path]$binPath"
-          echo "Swift binary path: $binPath"
         shell: powershell
 
       - name: ✅ Confirm Swift Version
         run: swift --version
         shell: pwsh
 
-      - name: 🔍 Add SecurityCodeScan Analyzers
+      - name: 🧾 Create Example Swift File
+        run: |
+          cd Project/swiftapp
+          swift package init --type executable
+          echo 'print("✅ Hello from Swift!")' > Sources/swiftapp/main.swift
+        shell: pwsh
+
+      - name: 🛠 Build Swift Project
+        run: |
+          cd Project/swiftapp
+          swift build
+        shell: pwsh
+
+      - name: 🚀 Run Swift Executable
+        run: |
+          cd Project/swiftapp
+          swift run
+        shell: pwsh
+
+      - name: 🔍 Add SecurityCodeScan Analyzer
         uses: security-code-scan/security-code-scan-add-action@f8ff4f2763ed6f229eded80b1f9af82ae7f32a0d
         with:
           solution-or-project: ./Project/src/Project.csproj
 
-      - name: 📦 Restore NuGet Packages
+      - name: 📦 Restore .NET Dependencies
         run: dotnet restore ./Project/src/Project.csproj
         shell: pwsh
 
@@ -88,7 +105,7 @@ jobs:
           project: ./Project/src/Project.csproj
           output: ./Project/reports/security-scan-results.sarif
 
-      - name: ☁️ Upload SARIF to GitHub Code Scanning
+      - name: ☁️ Upload SARIF to GitHub
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: ./Project/reports/security-scan-results.sarif
