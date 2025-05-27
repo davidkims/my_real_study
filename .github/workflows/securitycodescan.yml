@@ -1,4 +1,4 @@
-name: Retryable Secure Swift + .NET Workflow
+ame: Retryable Secure Swift + .NET Workflow
 
 on:
   workflow_dispatch:
@@ -31,6 +31,14 @@ jobs:
             echo "❌ .csproj file not found in Project/src" | Out-File -Append Project/logs/failures.log
             exit 1
           }
+          echo "csprojPath=$($csproj.FullName)" >> $env:GITHUB_OUTPUT
+          echo "✅ Found csproj: $($csproj.Name)"
+        shell: pwsh
+
+      - name: ⚙️ Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.x'
 
       - name: ⚙️ Setup NuGet
         uses: nuget/setup-nuget@v1
@@ -86,32 +94,20 @@ jobs:
       - name: 🔍 Add SCS Analyzer
         uses: security-code-scan/security-code-scan-add-action@v1
         with:
-          solution-or-project: ./Project/src/Project.csproj
+          solution-or-project: ${{ steps.locate-csproj.outputs.csprojPath }}
 
       - name: 📦 Restore .NET
-        run: |
-          if (Test-Path ./Project/src/Project.csproj) {
-            dotnet restore ./Project/src/Project.csproj
-          } else {
-            Write-Host "⚠️ Project.csproj not found. Skipping restore."
-            Add-Content -Path Project/logs/failures.log -Value "Project.csproj missing for restore"
-          }
+        run: dotnet restore "${{ steps.locate-csproj.outputs.csprojPath }}"
         shell: pwsh
 
       - name: 🏗 Build .NET
-        run: |
-          if (Test-Path ./Project/src/Project.csproj) {
-            dotnet build ./Project/src/Project.csproj --no-restore
-          } else {
-            Write-Host "⚠️ Project.csproj not found. Skipping build."
-            Add-Content -Path Project/logs/failures.log -Value "Project.csproj missing for build"
-          }
+        run: dotnet build "${{ steps.locate-csproj.outputs.csprojPath }}" --no-restore
         shell: pwsh
 
       - name: 📄 Convert to SARIF
         uses: security-code-scan/security-code-scan-results-action@v1
         with:
-          project: ./Project/src/Project.csproj
+          project: ${{ steps.locate-csproj.outputs.csprojPath }}
           output: ./Project/reports/security.sarif
 
       - name: ☁️ Upload SARIF
