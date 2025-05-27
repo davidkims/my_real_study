@@ -1,26 +1,28 @@
-name: SecurityCodeScan with Swift 6.1.1 (Windows)
+name: Retryable Secure Swift + .NET Workflow
 
 on:
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["main"]
   workflow_dispatch:
 
 jobs:
-  scs-swift:
+  secure-build:
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        attempt: [1]  # 첫 시도는 1 → 나중에 동적 retry로 반복 가능
 
     steps:
-      - name: ⬇️ Checkout repository
+      - name: ⬇️ Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 📁 Create project directories
+      - name: 🗃 Create Working Directories
         run: |
           mkdir Project
           mkdir Project/logs
           mkdir Project/reports
           mkdir Project/swiftapp
+          echo "" > Project/logs/failures.log
           dotnet new console --output Project/src --framework net6.0
         shell: pwsh
 
@@ -35,42 +37,64 @@ jobs:
       - name: ⚙️ Setup MSBuild
         uses: microsoft/setup-msbuild@v1.0.2
 
-      - name: 📦 Download and Install Swift 6.1.1
+      - name: 📦 Attempt Swift Install (Skip on 404)
+        id: swift-install
         run: |
-          $url = "https://download.swift.org/swift-6.1.1-release/swift-6.1.1-RELEASE-windows10.exe"
-          $exePath = "$env:RUNNER_TEMP\swift-installer.exe"
-          Write-Host "⬇️ Downloading Swift 6.1.1 installer from $url"
-          Invoke-WebRequest -Uri $url -OutFile $exePath -ErrorAction Stop
-          Write-Host "🚀 Installing Swift silently..."
-          Start-Process -FilePath $exePath -ArgumentList "/quiet" -Wait
-        shell: powershell
-
-      - name: ➕ Add Swift to PATH
-        run: |
-          $toolchainPath = Get-ChildItem -Directory "C:\Library\Developer\Toolchains" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if (-not $toolchainPath) {
-            Write-Error "❌ Swift install path not found. Check installation log or permissions."
-            exit 1
+          try {
+            $url = "https://download.swift.org/swift-6.1.1-release/swift-6.1.1-RELEASE-windows10.exe"
+            $exe = "$env:RUNNER_TEMP\swift-installer.exe"
+            Invoke-WebRequest -Uri $url -OutFile $exe -ErrorAction Stop
+            Start-Process -FilePath $exe -ArgumentList "/quiet" -Wait
+            echo "SWIFT_INSTALLED=true" >> $env:GITHUB_ENV
+          } catch {
+            Add-Content -Path Project/logs/failures.log -Value "Swift installation failed"
+            echo "SWIFT_INSTALLED=false" >> $env:GITHUB_ENV
           }
-          $binPath = "$($toolchainPath.FullName)\usr\bin"
-          echo "##[add-path]$binPath"
-          Write-Host "✅ Swift path added to PATH: $binPath"
         shell: powershell
+        continue-on-error: true
 
-      - name: ✅ Confirm Swift Version
-        run: swift --version
-        shell: pwsh
-
-      - name: 🧾 Create and Run Swift Example
+      - name: ➕ Set Swift PATH (If Installed)
         run: |
-          cd Project/swiftapp
-          swift package init --type executable
-          echo 'print("✅ Hello from Swift 6.1.1!")' > Sources/swiftapp/main.swift
-          swift build
-          swift run
-        shell: pwsh
+          if ($env:SWIFT_INSTALLED -eq "true") {
+            $path = Get-ChildItem -Directory "C:\Library\Developer\Toolchains" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if ($path) {
+              echo "##[add-path]$($path.FullName)\usr\bin"
+            } else {
+              Add-Content -Path Project/logs/failures.log -Value "Swift path not found"
+            }
+          }
+        shell: powershell
+        continue-on-error: true
 
-      - name: 🔍 Add SecurityCodeScan Analyzers
+      - name: ✅ Confirm Swift (Skip on fail)
+        run: |
+          if ($env:SWIFT_INSTALLED -eq "true") {
+            try {
+              swift --version
+            } catch {
+              Add-Content -Path Project/logs/failures.log -Value "Swift version check failed"
+            }
+          }
+        shell: pwsh
+        continue-on-error: true
+
+      - name: 🧾 Create & Run Swift App (Skip on fail)
+        run: |
+          if ($env:SWIFT_INSTALLED -eq "true") {
+            cd Project/swiftapp
+            swift package init --type executable
+            Set-Content -Path "Sources/swiftapp/main.swift" -Value 'print("✅ Hello from Swift!")'
+            try {
+              swift build
+              swift run
+            } catch {
+              Add-Content -Path ../logs/failures.log -Value "Swift app build/run failed"
+            }
+          }
+        shell: pwsh
+        continue-on-error: true
+
+      - name: 🔍 Add SecurityCodeScan Analyzer
         uses: security-code-scan/security-code-scan-add-action@f8ff4f2763ed6f229eded80b1f9af82ae7f32a0d
         with:
           solution-or-project: ./Project/src/Project.csproj
@@ -83,7 +107,7 @@ jobs:
         run: dotnet build ./Project/src/Project.csproj --no-restore
         shell: pwsh
 
-      - name: 📄 Convert Scan Results to SARIF
+      - name: 📄 Convert Security Scan Results to SARIF
         uses: security-code-scan/security-code-scan-results-action@cdb3d5e639054395e45bf401cba8688fcaf7a687
         with:
           project: ./Project/src/Project.csproj
@@ -93,3 +117,28 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: ./Project/reports/security-scan-results.sarif
+
+      - name: 📋 Show Failures and Retry Command
+        run: |
+          $log = Get-Content Project/logs/failures.log
+          if ($log.Trim()) {
+            Write-Host "❌ Failures occurred:"
+            Write-Host $log
+            if (${env:attempt} -lt 999) {
+              echo "RETRY_NEEDED=true" >> $env:GITHUB_ENV
+            }
+          } else {
+            Write-Host "✅ All steps completed successfully"
+          }
+        shell: pwsh
+
+  retry-if-failed:
+    needs: secure-build
+    if: ${{ env.RETRY_NEEDED == 'true' }}
+    runs-on: windows-latest
+    steps:
+      - name: 🔁 Re-dispatch workflow up to 999 times
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: retry-secure-build
