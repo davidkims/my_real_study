@@ -1,4 +1,4 @@
-name: SecurityCodeScan with Swift (ZIP-based Manual Install)
+name: SecurityCodeScan with Swift (ZIP Install)
 
 on:
   push:
@@ -14,10 +14,10 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: ⬇️ Checkout Repository
+      - name: ⬇️ Checkout repository
         uses: actions/checkout@v4
 
-      - name: 📁 Create Project and Directories
+      - name: 📁 Create .NET Project and Directories
         run: |
           mkdir Project
           cd Project
@@ -37,9 +37,9 @@ jobs:
       - name: ⚙️ Setup MSBuild
         uses: microsoft/setup-msbuild@v1.0.2
 
-      - name: 📦 Download and Extract Swift ZIP
+      - name: 📦 Download and Extract Swift (ZIP)
         run: |
-          $url = "https://download.swift.org/development/windows10/swift-5.10-DEVELOPMENT-SNAPSHOT-2024-05-23-a/swift-5.10-DEVELOPMENT-SNAPSHOT-2024-05-23-a-windows10.zip"
+          $url = "https://download.swift.org/development/windows10/swift-5.10-DEVELOPMENT-SNAPSHOT-2024-05-21-a/swift-5.10-DEVELOPMENT-SNAPSHOT-2024-05-21-a-windows10.zip"
           $zipPath = "$env:RUNNER_TEMP\swift.zip"
           $extractPath = "C:\swift"
           Invoke-WebRequest -Uri $url -OutFile $zipPath
@@ -48,11 +48,11 @@ jobs:
 
       - name: ➕ Add Swift to PATH
         run: |
-          $swiftBin = "C:\swift\swift-5.10-DEVELOPMENT-SNAPSHOT-2024-05-23-a-windows10\usr\bin"
-          echo "##[add-path]$swiftBin"
+          $binPath = "C:\swift\swift-5.10-DEVELOPMENT-SNAPSHOT-2024-05-21-a-windows10\usr\bin"
+          echo "##[add-path]$binPath"
         shell: powershell
 
-      - name: ✅ Confirm Swift Installation
+      - name: ✅ Confirm Swift Version
         run: swift --version
         shell: pwsh
 
@@ -65,11 +65,11 @@ jobs:
         run: dotnet restore ./Project/src/Project.csproj
         shell: pwsh
 
-      - name: 🏗 Build C# Project
+      - name: 🏗 Build .NET Project
         run: dotnet build ./Project/src/Project.csproj --no-restore
         shell: pwsh
 
-      - name: 📄 Convert SCS Results to SARIF
+      - name: 📄 Convert SecurityCodeScan Results to SARIF
         uses: security-code-scan/security-code-scan-results-action@cdb3d5e639054395e45bf401cba8688fcaf7a687
         with:
           project: ./Project/src/Project.csproj
