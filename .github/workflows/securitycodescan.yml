@@ -1,10 +1,10 @@
-name: SecurityCodeScan with Swift (via WinGet)
+name: SecurityCodeScan with Swift (ZIP-based Manual Install)
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
   workflow_dispatch:
   schedule:
     - cron: '23 16 * * 6'
@@ -37,9 +37,19 @@ jobs:
       - name: ⚙️ Setup MSBuild
         uses: microsoft/setup-msbuild@v1.0.2
 
-      - name: 📦 Install Swift via WinGet
+      - name: 📦 Download and Extract Swift ZIP
         run: |
-          winget install --id=Swift.Swift -e --accept-package-agreements --accept-source-agreements
+          $url = "https://download.swift.org/development/windows10/swift-5.10-DEVELOPMENT-SNAPSHOT-2024-05-23-a/swift-5.10-DEVELOPMENT-SNAPSHOT-2024-05-23-a-windows10.zip"
+          $zipPath = "$env:RUNNER_TEMP\swift.zip"
+          $extractPath = "C:\swift"
+          Invoke-WebRequest -Uri $url -OutFile $zipPath
+          Expand-Archive -Path $zipPath -DestinationPath $extractPath
+        shell: powershell
+
+      - name: ➕ Add Swift to PATH
+        run: |
+          $swiftBin = "C:\swift\swift-5.10-DEVELOPMENT-SNAPSHOT-2024-05-23-a-windows10\usr\bin"
+          echo "##[add-path]$swiftBin"
         shell: powershell
 
       - name: ✅ Confirm Swift Installation
