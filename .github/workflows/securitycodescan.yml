@@ -1,4 +1,4 @@
-name: SecurityCodeScan with Swift (ZIP Install)
+name: SecurityCodeScan with Swift (ZIP Manual Install)
 
 on:
   push:
@@ -39,7 +39,7 @@ jobs:
 
       - name: 📦 Download and Extract Swift (ZIP)
         run: |
-          $url = "https://download.swift.org/development/windows10/swift-5.10-DEVELOPMENT-SNAPSHOT-2024-05-21-a/swift-5.10-DEVELOPMENT-SNAPSHOT-2024-05-21-a-windows10.zip"
+          $url = "https://download.swift.org/development/windows10/swift-5.10-DEVELOPMENT-SNAPSHOT-2024-05-23-a/swift-5.10-DEVELOPMENT-SNAPSHOT-2024-05-23-a-windows10.zip"
           $zipPath = "$env:RUNNER_TEMP\swift.zip"
           $extractPath = "C:\swift"
           Invoke-WebRequest -Uri $url -OutFile $zipPath
@@ -48,7 +48,7 @@ jobs:
 
       - name: ➕ Add Swift to PATH
         run: |
-          $binPath = "C:\swift\swift-5.10-DEVELOPMENT-SNAPSHOT-2024-05-21-a-windows10\usr\bin"
+          $binPath = "C:\swift\swift-5.10-DEVELOPMENT-SNAPSHOT-2024-05-23-a-windows10\usr\bin"
           echo "##[add-path]$binPath"
         shell: powershell
 
@@ -69,7 +69,7 @@ jobs:
         run: dotnet build ./Project/src/Project.csproj --no-restore
         shell: pwsh
 
-      - name: 📄 Convert SecurityCodeScan Results to SARIF
+      - name: 📄 Convert SCS Results to SARIF
         uses: security-code-scan/security-code-scan-results-action@cdb3d5e639054395e45bf401cba8688fcaf7a687
         with:
           project: ./Project/src/Project.csproj
