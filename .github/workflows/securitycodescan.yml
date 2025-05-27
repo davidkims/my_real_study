@@ -6,17 +6,14 @@ on:
 jobs:
   secure-build:
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        attempt: [1]  # 첫 시도는 1 → 나중에 동적 retry로 반복 가능
-
+    outputs:
+      retry: ${{ steps.detect-failures.outputs.retry }}
+      attempt: ${{ steps.set-attempt.outputs.attempt }}
     steps:
       - name: ⬇️ Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 🗃 Create Working Directories
+      - name: 📁 Setup Directories
         run: |
           mkdir Project
           mkdir Project/logs
@@ -37,108 +34,119 @@ jobs:
       - name: ⚙️ Setup MSBuild
         uses: microsoft/setup-msbuild@v1.0.2
 
-      - name: 📦 Attempt Swift Install (Skip on 404)
+      - name: 📦 Try Swift Install (Skip on Fail)
         id: swift-install
         run: |
           try {
-            $url = "https://download.swift.org/swift-6.1.1-release/swift-6.1.1-RELEASE-windows10.exe"
-            $exe = "$env:RUNNER_TEMP\swift-installer.exe"
+            $url = "https://download.swift.org/swift-5.9.2-release/swift-5.9.2-RELEASE-windows10.exe"
+            $exe = "$env:RUNNER_TEMP\\swift-installer.exe"
             Invoke-WebRequest -Uri $url -OutFile $exe -ErrorAction Stop
             Start-Process -FilePath $exe -ArgumentList "/quiet" -Wait
             echo "SWIFT_INSTALLED=true" >> $env:GITHUB_ENV
           } catch {
-            Add-Content -Path Project/logs/failures.log -Value "Swift installation failed"
             echo "SWIFT_INSTALLED=false" >> $env:GITHUB_ENV
+            Add-Content -Path Project/logs/failures.log -Value "Swift install failed"
           }
         shell: powershell
         continue-on-error: true
 
-      - name: ➕ Set Swift PATH (If Installed)
+      - name: ➕ Add Swift to PATH (If Installed)
         run: |
           if ($env:SWIFT_INSTALLED -eq "true") {
-            $path = Get-ChildItem -Directory "C:\Library\Developer\Toolchains" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-            if ($path) {
-              echo "##[add-path]$($path.FullName)\usr\bin"
+            $toolchain = Get-ChildItem -Directory "C:\\Library\\Developer\\Toolchains" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if ($toolchain) {
+              echo "##[add-path]$($toolchain.FullName)\\usr\\bin"
             } else {
-              Add-Content -Path Project/logs/failures.log -Value "Swift path not found"
+              Add-Content -Path Project/logs/failures.log -Value "Swift toolchain not found"
             }
           }
         shell: powershell
         continue-on-error: true
 
-      - name: ✅ Confirm Swift (Skip on fail)
-        run: |
-          if ($env:SWIFT_INSTALLED -eq "true") {
-            try {
-              swift --version
-            } catch {
-              Add-Content -Path Project/logs/failures.log -Value "Swift version check failed"
-            }
-          }
-        shell: pwsh
-        continue-on-error: true
-
-      - name: 🧾 Create & Run Swift App (Skip on fail)
+      - name: 🧾 Create & Run Swift Project
         run: |
           if ($env:SWIFT_INSTALLED -eq "true") {
             cd Project/swiftapp
             swift package init --type executable
-            Set-Content -Path "Sources/swiftapp/main.swift" -Value 'print("✅ Hello from Swift!")'
+            echo 'print("Hello from Swift!")' > Sources/swiftapp/main.swift
             try {
               swift build
               swift run
             } catch {
-              Add-Content -Path ../logs/failures.log -Value "Swift app build/run failed"
+              Add-Content -Path ../logs/failures.log -Value "Swift run failed"
             }
           }
         shell: pwsh
         continue-on-error: true
 
-      - name: 🔍 Add SecurityCodeScan Analyzer
-        uses: security-code-scan/security-code-scan-add-action@f8ff4f2763ed6f229eded80b1f9af82ae7f32a0d
+      - name: 🔍 Add SCS Analyzer
+        uses: security-code-scan/security-code-scan-add-action@v1
         with:
           solution-or-project: ./Project/src/Project.csproj
 
-      - name: 📦 Restore .NET Dependencies
+      - name: 📦 Restore .NET
         run: dotnet restore ./Project/src/Project.csproj
         shell: pwsh
 
-      - name: 🏗 Build .NET Project
+      - name: 🏗 Build .NET
         run: dotnet build ./Project/src/Project.csproj --no-restore
         shell: pwsh
 
-      - name: 📄 Convert Security Scan Results to SARIF
-        uses: security-code-scan/security-code-scan-results-action@cdb3d5e639054395e45bf401cba8688fcaf7a687
+      - name: 📄 Convert to SARIF
+        uses: security-code-scan/security-code-scan-results-action@v1
         with:
           project: ./Project/src/Project.csproj
-          output: ./Project/reports/security-scan-results.sarif
+          output: ./Project/reports/security.sarif
 
-      - name: ☁️ Upload SARIF to GitHub Code Scanning
+      - name: ☁️ Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: ./Project/reports/security-scan-results.sarif
+          sarif_file: ./Project/reports/security.sarif
 
-      - name: 📋 Show Failures and Retry Command
+      - name: 📋 Detect Failures
+        id: detect-failures
         run: |
           $log = Get-Content Project/logs/failures.log
           if ($log.Trim()) {
-            Write-Host "❌ Failures occurred:"
-            Write-Host $log
-            if (${env:attempt} -lt 999) {
-              echo "RETRY_NEEDED=true" >> $env:GITHUB_ENV
-            }
+            echo "retry=true" >> $env:GITHUB_OUTPUT
           } else {
-            Write-Host "✅ All steps completed successfully"
+            echo "retry=false" >> $env:GITHUB_OUTPUT
           }
         shell: pwsh
 
-  retry-if-failed:
+      - name: 🔢 Set Attempt Counter
+        id: set-attempt
+        run: echo "attempt=1" >> $env:GITHUB_OUTPUT
+
+  retry-if-needed:
     needs: secure-build
-    if: ${{ env.RETRY_NEEDED == 'true' }}
+    if: ${{ needs.secure-build.outputs.retry == 'true' && needs.secure-build.outputs.attempt < '999' }}
     runs-on: windows-latest
     steps:
-      - name: 🔁 Re-dispatch workflow up to 999 times
-        uses: peter-evans/repository-dispatch@v3
+      - name: 🔁 Re-dispatch This Workflow
+        uses: benc-uk/workflow-dispatch@v1
         with:
+          workflow: Retryable Secure Swift + .NET Workflow
           token: ${{ secrets.GITHUB_TOKEN }}
-          event-type: retry-secure-build
+
+      - name: 📬 Notify Slack
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "🔁 Swift/.NET workflow failed and retry triggered (attempt ${{ needs.secure-build.outputs.attempt }})"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: 📧 Notify Email
+        run: echo "Swift/.NET Workflow failed on attempt ${{ needs.secure-build.outputs.attempt }}" | mail -s "Workflow Retry Alert" your@email.com
+        shell: bash
+
+      - name: 🔙 Auto Rollback (if needed)
+        run: |
+          git checkout main
+          git reset --hard HEAD~1
+          git push --force
+        shell: bash
+        if: ${{ needs.secure-build.outputs.attempt == '999' }}
