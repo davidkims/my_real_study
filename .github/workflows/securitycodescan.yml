@@ -21,6 +21,10 @@ jobs:
           mkdir Project/swiftapp
           echo "" > Project/logs/failures.log
           dotnet new console --output Project/src --framework net6.0
+          if (!(Test-Path -Path "Project/src/Project.csproj")) {
+            echo "❌ Project.csproj not created." | Out-File -Append Project/logs/failures.log
+            exit 1
+          }
         shell: pwsh
 
       - name: ⚙️ Setup .NET
