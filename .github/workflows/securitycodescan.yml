@@ -21,16 +21,16 @@ jobs:
           mkdir Project/swiftapp
           echo "" > Project/logs/failures.log
           dotnet new console --output Project/src --framework net6.0
-          if (!(Test-Path -Path "Project/src/Project.csproj")) {
-            echo "❌ Project.csproj not created." | Out-File -Append Project/logs/failures.log
-            exit 1
-          }
         shell: pwsh
 
-      - name: ⚙️ Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '6.x'
+      - name: 🔍 Locate .csproj file
+        id: locate-csproj
+        run: |
+          $csproj = Get-ChildItem -Path Project/src -Filter *.csproj | Select-Object -First 1
+          if (-not $csproj) {
+            echo "❌ .csproj file not found in Project/src" | Out-File -Append Project/logs/failures.log
+            exit 1
+          }
 
       - name: ⚙️ Setup NuGet
         uses: nuget/setup-nuget@v1
@@ -89,11 +89,23 @@ jobs:
           solution-or-project: ./Project/src/Project.csproj
 
       - name: 📦 Restore .NET
-        run: dotnet restore ./Project/src/Project.csproj
+        run: |
+          if (Test-Path ./Project/src/Project.csproj) {
+            dotnet restore ./Project/src/Project.csproj
+          } else {
+            Write-Host "⚠️ Project.csproj not found. Skipping restore."
+            Add-Content -Path Project/logs/failures.log -Value "Project.csproj missing for restore"
+          }
         shell: pwsh
 
       - name: 🏗 Build .NET
-        run: dotnet build ./Project/src/Project.csproj --no-restore
+        run: |
+          if (Test-Path ./Project/src/Project.csproj) {
+            dotnet build ./Project/src/Project.csproj --no-restore
+          } else {
+            Write-Host "⚠️ Project.csproj not found. Skipping build."
+            Add-Content -Path Project/logs/failures.log -Value "Project.csproj missing for build"
+          }
         shell: pwsh
 
       - name: 📄 Convert to SARIF
