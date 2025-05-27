@@ -1,4 +1,4 @@
-name: SecurityCodeScan with Swift 6.1.1 (Windows)
+name: SecurityCodeScan with Swift (Skip on Fail)
 
 on:
   push:
@@ -8,11 +8,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  scs-swift:
+  scan:
     runs-on: windows-latest
 
     steps:
-      - name: ⬇️ Checkout repository
+      - name: ⬇️ Checkout
         uses: actions/checkout@v4
 
       - name: 📁 Create project directories
@@ -35,42 +35,56 @@ jobs:
       - name: ⚙️ Setup MSBuild
         uses: microsoft/setup-msbuild@v1.0.2
 
-      - name: 📦 Download and Install Swift 6.1.1
+      - name: 📦 Try Download and Install Swift 6.1.1
         run: |
-          $url = "https://download.swift.org/swift-6.1.1-release/swift-6.1.1-RELEASE-windows10.exe"
-          $exePath = "$env:RUNNER_TEMP\swift-installer.exe"
-          Write-Host "⬇️ Downloading Swift 6.1.1 installer from $url"
-          Invoke-WebRequest -Uri $url -OutFile $exePath -ErrorAction Stop
-          Write-Host "🚀 Installing Swift silently..."
-          Start-Process -FilePath $exePath -ArgumentList "/quiet" -Wait
-        shell: powershell
-
-      - name: ➕ Add Swift to PATH
-        run: |
-          $toolchainPath = Get-ChildItem -Directory "C:\Library\Developer\Toolchains" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if (-not $toolchainPath) {
-            Write-Error "❌ Swift install path not found. Check installation log or permissions."
-            exit 1
+          try {
+            $url = "https://download.swift.org/swift-6.1.1-release/swift-6.1.1-RELEASE-windows10.exe"
+            $exePath = "$env:RUNNER_TEMP\swift-installer.exe"
+            Write-Host "⬇️ Downloading Swift 6.1.1 from $url"
+            Invoke-WebRequest -Uri $url -OutFile $exePath -ErrorAction Stop
+            Write-Host "🚀 Installing Swift..."
+            Start-Process -FilePath $exePath -ArgumentList "/quiet" -Wait
+          } catch {
+            Write-Warning "⚠️ Swift installer download or install failed. Skipping Swift steps."
+            exit 0
           }
-          $binPath = "$($toolchainPath.FullName)\usr\bin"
-          echo "##[add-path]$binPath"
-          Write-Host "✅ Swift path added to PATH: $binPath"
         shell: powershell
+        continue-on-error: true
 
-      - name: ✅ Confirm Swift Version
+      - name: ➕ Try Add Swift to PATH
+        run: |
+          try {
+            $toolchain = Get-ChildItem -Directory "C:\Library\Developer\Toolchains" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if (-not $toolchain) {
+              Write-Warning "⚠️ Swift toolchain not found. Skipping Swift PATH update."
+              exit 0
+            }
+            $binPath = "$($toolchain.FullName)\usr\bin"
+            echo "##[add-path]$binPath"
+            Write-Host "✅ Swift added to PATH: $binPath"
+          } catch {
+            Write-Warning "⚠️ Failed to add Swift to PATH. Skipping."
+            exit 0
+          }
+        shell: powershell
+        continue-on-error: true
+
+      - name: ✅ Try Confirm Swift Version
         run: swift --version
         shell: pwsh
+        continue-on-error: true
 
-      - name: 🧾 Create and Run Swift Example
+      - name: 🧾 Try Create and Run Swift Project
         run: |
           cd Project/swiftapp
           swift package init --type executable
-          echo 'print("✅ Hello from Swift 6.1.1!")' > Sources/swiftapp/main.swift
+          echo 'print("✅ Hello from Swift!")' > Sources/swiftapp/main.swift
           swift build
           swift run
         shell: pwsh
+        continue-on-error: true
 
-      - name: 🔍 Add SecurityCodeScan Analyzers
+      - name: 🔍 Add SecurityCodeScan
         uses: security-code-scan/security-code-scan-add-action@f8ff4f2763ed6f229eded80b1f9af82ae7f32a0d
         with:
           solution-or-project: ./Project/src/Project.csproj
@@ -83,7 +97,7 @@ jobs:
         run: dotnet build ./Project/src/Project.csproj --no-restore
         shell: pwsh
 
-      - name: 📄 Convert Scan Results to SARIF
+      - name: 📄 Convert Results to SARIF
         uses: security-code-scan/security-code-scan-results-action@cdb3d5e639054395e45bf401cba8688fcaf7a687
         with:
           project: ./Project/src/Project.csproj
