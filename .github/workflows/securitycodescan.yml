@@ -12,58 +12,67 @@ on:
 jobs:
   scs-scan:
     runs-on: windows-latest
+
     steps:
-      - name: Checkout repository
+      - name: ⬇️ Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Create required directories and files
+      - name: 📁 Create Required Directories and C# Project
         run: |
           mkdir Project
           cd Project
           dotnet new console --output src --framework net6.0
           mkdir logs
           mkdir reports
-          echo "⬛ 프로젝트 및 디스크 디렉토리 생성 완료"
+        shell: pwsh
 
-      - name: Setup NuGet
-        uses: nuget/setup-nuget@v1
-
-      - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v1.0.2
-
-      - name: Setup .NET
+      - name: ⚙️ Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '6.x'
 
-      - name: Install Swift using Scoop
+      - name: ⚙️ Setup NuGet
+        uses: nuget/setup-nuget@v1
+
+      - name: ⚙️ Setup MSBuild
+        uses: microsoft/setup-msbuild@v1.0.2
+
+      - name: 📦 Install Swift on Windows
         run: |
-          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
-          irm get.scoop.sh | iex
-          scoop install swift
+          Invoke-WebRequest -Uri https://download.swift.org/windows/Swift-5.9.2-Release/swift-5.9.2-RELEASE-windows10.exe -OutFile swift-installer.exe
+          Start-Process -FilePath .\swift-installer.exe -ArgumentList "/quiet" -Wait
         shell: powershell
 
-      - name: Confirm Swift installation
-        run: swift --version
+      - name: 🛠 Add Swift to PATH (manual path setup)
+        run: |
+          $SwiftPath = "C:\Library\Developer\Toolchains\unknown-Asserts-development.xctoolchain\usr\bin"
+          echo "##[add-path]$SwiftPath"
+        shell: powershell
 
-      - name: Add SecurityCodeScan analyzers
+      - name: ✅ Confirm Swift Installation
+        run: swift --version
+        shell: pwsh
+
+      - name: 🔍 Add SecurityCodeScan Analyzers
         uses: security-code-scan/security-code-scan-add-action@f8ff4f2763ed6f229eded80b1f9af82ae7f32a0d
         with:
           solution-or-project: ./Project/src/Project.csproj
 
-      - name: Restore dependencies
+      - name: 📦 Restore NuGet Packages
         run: dotnet restore ./Project/src/Project.csproj
+        shell: pwsh
 
-      - name: Build the project
+      - name: 🏗 Build Project
         run: dotnet build ./Project/src/Project.csproj --no-restore
+        shell: pwsh
 
-      - name: Convert SCS results to SARIF
+      - name: 📄 Convert SCS Results to SARIF
         uses: security-code-scan/security-code-scan-results-action@cdb3d5e639054395e45bf401cba8688fcaf7a687
         with:
           project: ./Project/src/Project.csproj
           output: ./Project/reports/security-scan-results.sarif
 
-      - name: Upload SARIF results to GitHub Code Scanning
+      - name: ☁️ Upload SARIF to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: ./Project/reports/security-scan-results.sarif
