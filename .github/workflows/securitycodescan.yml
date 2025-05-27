@@ -1,4 +1,4 @@
-name: SecurityCodeScan with Swift (ZIP Manual Install)
+name: SecurityCodeScan with Swift (Auto ZIP URL)
 
 on:
   push:
@@ -37,19 +37,32 @@ jobs:
       - name: ⚙️ Setup MSBuild
         uses: microsoft/setup-msbuild@v1.0.2
 
-      - name: 📦 Download and Extract Swift (ZIP)
+      - name: 🔍 Detect Latest Swift ZIP URL
+        id: swift-url
         run: |
-          $url = "https://download.swift.org/development/windows10/swift-5.10-DEVELOPMENT-SNAPSHOT-2024-05-23-a/swift-5.10-DEVELOPMENT-SNAPSHOT-2024-05-23-a-windows10.zip"
+          $html = Invoke-WebRequest -Uri "https://download.swift.org/development/windows10/" | Select-Object -ExpandProperty Content
+          $matches = [regex]::Matches($html, "href=""(swift-5\.[\d\.-]+-DEVELOPMENT-SNAPSHOT-[\d-]+-windows10.zip)""")
+          if ($matches.Count -eq 0) { throw "❌ 최신 Swift ZIP 파일을 찾을 수 없습니다." }
+          $latest = $matches[$matches.Count - 1].Groups[1].Value
+          $url = "https://download.swift.org/development/windows10/$latest"
+          echo "SWIFT_ZIP_URL=$url" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "✅ 최신 Swift ZIP 경로: $url"
+        shell: powershell
+
+      - name: 📦 Download and Extract Swift
+        run: |
           $zipPath = "$env:RUNNER_TEMP\swift.zip"
           $extractPath = "C:\swift"
-          Invoke-WebRequest -Uri $url -OutFile $zipPath
+          Invoke-WebRequest -Uri "$env:SWIFT_ZIP_URL" -OutFile $zipPath
           Expand-Archive -Path $zipPath -DestinationPath $extractPath
         shell: powershell
 
       - name: ➕ Add Swift to PATH
         run: |
-          $binPath = "C:\swift\swift-5.10-DEVELOPMENT-SNAPSHOT-2024-05-23-a-windows10\usr\bin"
+          $subdir = Get-ChildItem "C:\swift" | Where-Object { $_.PSIsContainer } | Sort-Object Name -Descending | Select-Object -First 1
+          $binPath = "C:\swift\$($subdir.Name)\usr\bin"
           echo "##[add-path]$binPath"
+          echo "Swift binary path: $binPath"
         shell: powershell
 
       - name: ✅ Confirm Swift Version
