@@ -1,12 +1,10 @@
-name: SecurityCodeScan with Swift
+name: SecurityCodeScan with Swift Manual Install
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
-  schedule:
-    - cron: '23 16 * * 6'
+    branches: ["main"]
   workflow_dispatch:
 
 jobs:
@@ -17,7 +15,7 @@ jobs:
       - name: ⬇️ Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 📁 Create Required Directories and C# Project
+      - name: 📁 Create C# Project and Folders
         run: |
           mkdir Project
           cd Project
@@ -37,11 +35,19 @@ jobs:
       - name: ⚙️ Setup MSBuild
         uses: microsoft/setup-msbuild@v1.0.2
 
-      - name: 📦 Install Swift using Chocolatey
-        run: choco install swift --version=5.9.1 -y
+      - name: 📦 Download and Extract Swift (Windows)
+        run: |
+          Invoke-WebRequest -Uri https://download.swift.org/development/windows10/swift-5.10-DEVELOPMENT-SNAPSHOT-2024-03-28-a/swift-5.10-DEVELOPMENT-SNAPSHOT-2024-03-28-a-windows10.exe -OutFile swift-installer.exe
+          Start-Process -FilePath .\swift-installer.exe -ArgumentList "/quiet" -Wait
         shell: powershell
 
-      - name: ✅ Confirm Swift Installation
+      - name: 🔧 Add Swift to PATH
+        run: |
+          $env:SWIFT_PATH = "C:\Library\Developer\Toolchains\unknown-Asserts-development.xctoolchain\usr\bin"
+          echo "##[add-path]$env:SWIFT_PATH"
+        shell: powershell
+
+      - name: ✅ Confirm Swift Version
         run: swift --version
         shell: pwsh
 
@@ -54,17 +60,17 @@ jobs:
         run: dotnet restore ./Project/src/Project.csproj
         shell: pwsh
 
-      - name: 🏗 Build Project
+      - name: 🏗 Build C# Project
         run: dotnet build ./Project/src/Project.csproj --no-restore
         shell: pwsh
 
-      - name: 📄 Convert SCS Results to SARIF
+      - name: 📄 Convert to SARIF
         uses: security-code-scan/security-code-scan-results-action@cdb3d5e639054395e45bf401cba8688fcaf7a687
         with:
           project: ./Project/src/Project.csproj
           output: ./Project/reports/security-scan-results.sarif
 
-      - name: ☁️ Upload SARIF to GitHub Code Scanning
+      - name: ☁️ Upload SARIF to GitHub
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: ./Project/reports/security-scan-results.sarif
