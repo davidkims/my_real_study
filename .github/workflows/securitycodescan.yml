@@ -1,50 +1,26 @@
 ---
-name: 자동 보안 설정 최적화 with GH_ADMIN_TOKEN
+name: 워크플로우 보안 설정 최적화 점검 (토큰 없이 실행 가능)
 
 on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
-  secure-fix-with-token:
+  secure-fix-no-token:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 🔍 GH_ADMIN_TOKEN 존재 확인
-        id: token-check
-        run: |
-          if [ -z "${{ secrets.GH_ADMIN_TOKEN }}" ]; then
-            echo "token_available=false" >> $GITHUB_OUTPUT
-          else
-            echo "token_available=true" >> $GITHUB_OUTPUT
-          fi
-
-      - name: ❌ 토큰 없음 안내 및 워크플로우 종료
-        if: steps.token-check.outputs.token_available == 'false'
-        run: |
-          echo "❗ GH_ADMIN_TOKEN이 설정되어 있지 않습니다."
-          echo "✅ 다음 절차에 따라 토큰을 생성해 주세요:"
-          echo "1. https://github.com/settings/tokens?type=beta 접속"
-          echo "2. 다음 권한을 활성화:"
-          echo "   - Contents: Read and write"
-          echo "   - Actions: Read and write"
-          echo "   - Workflows: Read and write"
-          echo "3. 레포지토리 → Settings → Secrets → Actions 에 다음 이름으로 등록"
-          echo "   이름: GH_ADMIN_TOKEN"
-          echo "🔁 토큰 등록 후 이 워크플로우를 다시 실행하세요."
-          exit 1
-
       - name: 📦 저장소 체크아웃
         uses: actions/checkout@v4
-        if: steps.token-check.outputs.token_available == 'true'
 
-      - name: 🔧 보안 설정 최적화 적용
-        if: steps.token-check.outputs.token_available == 'true'
+      - name: 🧪 .github/workflows 내 보안 권한 점검 및 수정 시뮬레이션
         run: |
-          echo "🔐 .github/workflows 내 보안 설정을 최소 권한으로 최적화 중..."
+          echo "🔐 워크플로우 보안 권한 최소화 점검 중..."
+          mkdir -p logs
+          cp -r .github/workflows logs/original_workflows
+          
           find .github/workflows -name "*.yml" | while read FILE; do
             sed -i 's/permissions: write/permissions: read/g' "$FILE"
             sed -i 's/id-token: write/id-token: read/g' "$FILE"
@@ -52,37 +28,27 @@ jobs:
             sed -i 's/contents: write/contents: read/g' "$FILE"
             sed -i 's/actions: write/actions: read/g' "$FILE"
           done
-          echo "✅ 보안 설정 최적화 완료"
+          echo "✅ 시뮬레이션 완료 (파일 수정됨 - 푸시는 안함)"
 
-      - name: 🛠️ 브랜치 생성 및 커밋
-        if: steps.token-check.outputs.token_available == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+      - name: 📋 수정된 내용 diff 출력
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          BRANCH=fix/security-auto-$(date +%Y%m%d%H%M%S)
-          git checkout -b $BRANCH
-          git add .github/workflows
-          git commit -m "🔒 자동 보안 설정 최적화 적용"
-          git push https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }} $BRANCH
-          echo "branch=$BRANCH" >> $GITHUB_ENV
+          echo "📄 변경된 워크플로우 비교 결과 (Diff):"
+          git config --global user.email "github-actions@github.com"
+          git config --global user.name "github-actions"
+          git init temprepo
+          cd temprepo
+          git init
+          cp -r ../logs/original_workflows/* .
+          git add .
+          git commit -m "original"
+          cd ..
+          cp -r .github/workflows/* temprepo/
+          cd temprepo
+          git add .
+          git diff --staged
+          echo "✅ diff 출력 완료"
 
-      - name: 🚀 PR 자동 생성
-        if: steps.token-check.outputs.token_available == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+      - name: 📌 후속 안내
         run: |
-          echo "${GH_TOKEN}" | gh auth login --with-token
-          gh pr create \
-            --title "🔒 자동 보안 설정 최적화 PR" \
-            --body "보안 권한이 너무 높은 워크플로우 설정을 최소 권한으로 자동 수정한 PR입니다." \
-            --head "$BRANCH" \
-            --base "main"
-          echo "✅ PR 자동 생성 완료"
-
-      - name: 📋 수정 내역 미리 보기
-        if: steps.token-check.outputs.token_available == 'true'
-        run: |
-          echo "📄 변경된 워크플로우 diff:"
-          git --no-pager diff HEAD~1
+          echo "⚠️ 워크플로우 파일은 자동 푸시되지 않습니다."
+          echo "👇 아래의 diff 내용을 바탕으로 수동으로 PR을 생성해 주세요."
