@@ -2,7 +2,7 @@ name: Full System Automation with Backup, Test, and Reporting
 
 on:
   schedule:
-    - cron: '0 23 * * *'  # 매일 오전 8시 (KST)
+    - cron: '0 23 * * *'  # 매일 오전 8시 (KST 기준)
   workflow_dispatch:
 
 permissions:
@@ -29,16 +29,18 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y apache2 apache2-utils unzip curl default-jdk
 
-    - name: Setup Apache
+    - name: Setup Apache with auth
       run: |
         sudo mkdir -p /etc/apache2/auth
         echo "admin:$(openssl passwd -crypt password123)" | sudo tee /etc/apache2/auth/.htpasswd
-        echo '<Directory "/var/www/html">' | sudo tee /etc/apache2/conf-available/auth.conf
-        echo '  AuthType Basic' | sudo tee -a /etc/apache2/conf-available/auth.conf
-        echo '  AuthName "Restricted"' | sudo tee -a /etc/apache2/conf-available/auth.conf
-        echo '  AuthUserFile /etc/apache2/auth/.htpasswd' | sudo tee -a /etc/apache2/conf-available/auth.conf
-        echo '  Require valid-user' | sudo tee -a /etc/apache2/conf-available/auth.conf
-        echo '</Directory>' | sudo tee -a /etc/apache2/conf-available/auth.conf
+        cat <<EOF | sudo tee /etc/apache2/conf-available/auth.conf
+<Directory "/var/www/html">
+  AuthType Basic
+  AuthName "Restricted"
+  AuthUserFile /etc/apache2/auth/.htpasswd
+  Require valid-user
+</Directory>
+EOF
         sudo a2enconf auth
         sudo systemctl restart apache2
 
@@ -71,20 +73,20 @@ EOF
         mv maven_backups/apache-maven-3.9.6 maven_backups/maven-${{ steps.vars.outputs.timestamp }}
         echo "$(pwd)/maven_backups/maven-${{ steps.vars.outputs.timestamp }}/bin" >> $GITHUB_PATH
 
-    - name: Test Maven installation
+    - name: Test Maven
       run: mvn --version
 
-    - name: Test Spring Boot launch
+    - name: Run Spring Boot for test
       run: |
         nohup java -jar springboot/app.jar > springboot/run.log 2>&1 &
         sleep 10
-        curl -s http://localhost:8080 || echo "No default endpoint"
+        curl -s http://localhost:8080 || echo "No default route"
         pkill -f 'springboot/app.jar' || true
 
     - name: Backup Spring Boot
       run: cp springboot/app.jar springboot_backups/app-${{ steps.vars.outputs.timestamp }}.jar
 
-    - name: Workflow and DB Backup
+    - name: Backup workflow and DB
       run: |
         zip -r backups/workflows-backup-${{ steps.vars.outputs.timestamp }}.zip .github/workflows
         echo "-- Sample DB Backup" > db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
@@ -109,7 +111,7 @@ EOF
         echo "memory=$(free | awk '/Mem/ {printf(\"%.2f\", $3/$2 * 100)}')" >> $GITHUB_OUTPUT
         echo "disk=$(df -h . | awk 'NR==2 {print $5}')" >> $GITHUB_OUTPUT
 
-    - name: Clean files older than 2 days
+    - name: Clean backups older than 2 days
       run: |
         find backups db_backups apache_backups nt-backup reports eai_backups springboot_backups -type f -mtime +2 -exec rm -v {} \;
         find maven_backups -depth -type d -mtime +2 -exec rm -rv {} \;
@@ -117,25 +119,24 @@ EOF
     - name: Generate Markdown Report
       run: |
         REPORT=reports/report-${{ steps.vars.outputs.timestamp }}.md
-        echo "# 📋 Backup Report (${{
-          steps.vars.outputs.date_fmt }})" > $REPORT
+        echo "# \U0001F4CB Backup Report (${{ steps.vars.outputs.date_fmt }})" > $REPORT
         echo "- Spring Boot: ✅" >> $REPORT
         echo "- Maven: ✅" >> $REPORT
         echo "## EAI 상태" >> $REPORT
-        echo "- 송신: `${{ steps.eai.outputs.send_status }}`" >> $REPORT
-        echo "- 수신: `${{ steps.eai.outputs.recv_status }}`" >> $REPORT
+        echo "- 송신: \`${{ steps.eai.outputs.send_status }}\`" >> $REPORT
+        echo "- 수신: \`${{ steps.eai.outputs.recv_status }}\`" >> $REPORT
         echo "## 시스템 자원율" >> $REPORT
-        echo "- CPU: `${{ steps.sys.outputs.cpu }}%`" >> $REPORT
-        echo "- Memory: `${{ steps.sys.outputs.memory }}%`" >> $REPORT
-        echo "- Disk: `${{ steps.sys.outputs.disk }}`" >> $REPORT
+        echo "- CPU: \`${{ steps.sys.outputs.cpu }}%\`" >> $REPORT
+        echo "- Memory: \`${{ steps.sys.outputs.memory }}%\`" >> $REPORT
+        echo "- Disk: \`${{ steps.sys.outputs.disk }}\`" >> $REPORT
 
-    - name: Commit report
+    - name: Commit Report and Backups
       run: |
         git config user.name github-actions
         git config user.email github-actions@github.com
         git pull origin main
         git add reports/*.md springboot_backups/ maven_backups/ db_backups/ backups/ eai_backups/
-        git commit -m "📦 Backup + Report @ ${{ steps.vars.outputs.timestamp }}" || echo "Nothing to commit"
+        git commit -m "\U0001F4E6 Backup + Report @ ${{ steps.vars.outputs.timestamp }}" || echo "Nothing to commit"
         git push origin main
 
   deploy-pages:
