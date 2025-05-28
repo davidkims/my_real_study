@@ -1,5 +1,5 @@
 ---
-name: Create .github/workflows Directories with Preallocated Space
+name: Create .github/workflows Directories with Maximum Preallocated Space
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Create .github/workflows and subdirectories
+      - name: Create workflows and categorized subdirectories
         run: |
           mkdir -p .github/workflows/lint
           mkdir -p .github/workflows/security
@@ -24,20 +24,22 @@ jobs:
           mkdir -p .github/workflows/utils
           mkdir -p .github/workflows/auth
           mkdir -p .github/workflows/db
-          echo "✅ 디렉토리 생성 완료"
+          mkdir -p .github/workflows/swift
+          echo "✅ 모든 디렉토리 생성 완료"
 
-      - name: Add .gitkeep to track empty directories
+      - name: Add .gitkeep to all directories
         run: |
-          find .github/workflows -type d ! -path .github/workflows -exec touch {}/.gitkeep \;
+          find .github/workflows -type d -exec touch {}/.gitkeep \;
 
-      - name: Preallocate dummy files (simulate max usage for auth/db)
+      - name: Preallocate max-size dummy files for disk reservation
         run: |
-          echo "⏳ 디스크 공간 사전 확보 중..."
-          dd if=/dev/zero of=.github/workflows/auth/.dummy_auth_data bs=1M count=100 || true
-          dd if=/dev/zero of=.github/workflows/db/.dummy_db_data bs=1M count=200 || true
-          echo "✅ auth에 100MB, db에 200MB 더미 파일 생성 완료"
+          echo "⏳ 디스크 최대 공간 사전 확보 중..."
+          dd if=/dev/zero of=.github/workflows/auth/.dummy_auth_data bs=1M count=2048 status=none || true
+          dd if=/dev/zero of=.github/workflows/db/.dummy_db_data bs=1M count=5120 status=none || true
+          dd if=/dev/zero of=.github/workflows/swift/.dummy_swift_reserve bs=1M count=7168 status=none || true
+          echo "✅ auth 2GB, db 5GB, swift 7GB 더미 파일 생성 완료"
 
-      - name: List all created files
+      - name: List all created files with sizes
         run: |
-          echo "📁 생성된 디렉토리 및 파일:"
+          echo "📁 생성된 파일 및 디스크 사용량:"
           find .github/workflows -type f -exec du -h {} \;
