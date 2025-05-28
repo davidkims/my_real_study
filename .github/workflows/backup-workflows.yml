@@ -48,13 +48,7 @@ jobs:
       run: |
         echo "APP_ENV=production" > springboot/.env
         mkdir -p springboot/src/main/resources
-        cat <<EOF > springboot/src/main/resources/application.yml
-spring:
-  application:
-    name: SampleApp
-  server:
-    port: 8080
-EOF
+        printf "spring:\n  application:\n    name: SampleApp\n  server:\n    port: 8080\n" > springboot/src/main/resources/application.yml
 
     - name: Install Maven
       run: |
