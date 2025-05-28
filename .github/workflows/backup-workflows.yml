@@ -1,45 +1,76 @@
-name: Weekly Workflow & DB Backup
+name: Daily Workflow & DB Backup with Email
 
 on:
   schedule:
-    - cron: '0 23 * * 0'  # 매주 월요일 오전 08:00 KST (UTC+9 → 23:00 UTC 일요일)
+    - cron: '0 23 * * *'  # ✅ 매일 오전 8시 (KST 기준 → UTC 기준 23시)
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   backup:
-    name: Backup workflows and DB
+    name: Daily Backup and Email Notification
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set backup timestamp
+      - name: Set timestamp
         id: vars
         run: echo "timestamp=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
 
-      - name: Compress .github/workflows directory
+      - name: Create storage folders
         run: |
           mkdir -p backups
+          mkdir -p db_backups
+          mkdir -p storage/logs
+          mkdir -p storage/tmp
+          mkdir -p storage/data
+
+      - name: Compress workflows directory
+        run: |
           zip -r "backups/workflows-backup-${{ steps.vars.outputs.timestamp }}.zip" .github/workflows
 
-      - name: Simulate DB Backup (SQLite/PostgreSQL/MySQL 등)
+      - name: Simulate DB backup
         run: |
-          mkdir -p db_backups
-          # 예: SQLite의 경우
-          if [ -f db.sqlite3 ]; then
-            cp db.sqlite3 "db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sqlite3"
-          else
-            echo "-- Dummy DB backup for example" > db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
-            echo "CREATE TABLE IF NOT EXISTS sample(id INT);" >> db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
-          fi
+          echo "-- Daily DB backup" > db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
+          echo "CREATE TABLE IF NOT EXISTS sample (id INT);" >> db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
 
-      - name: Save backup ZIP to repository (commit and push)
+      - name: Delete ZIP files older than 30 days
+        run: |
+          find backups -type f -name "*.zip" -mtime +30 -exec echo "🗑️ Deleting {}" \; -exec rm {} \;
+
+      - name: Commit and push backup
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          
-          git pull origin ${{ github.ref_name }}  # 최신 상태 유지
-          git add backups/*.zip db_backups/*
-          git commit -m "🔒 Automated backup at ${{ steps.vars.outputs.timestamp }}" || echo "Nothing to commit"
+          git pull origin ${{ github.ref_name }}
+          git add backups/*.zip db_backups/ storage/
+          git commit -m "📦 Daily backup at ${{ steps.vars.outputs.timestamp }}" || echo "Nothing to commit"
           git push origin ${{ github.ref_name }}
+
+      - name: Send backup email via Gmail
+        env:
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y msmtp
+
+          echo "defaults" > ~/.msmtprc
+          echo "auth on" >> ~/.msmtprc
+          echo "tls on" >> ~/.msmtprc
+          echo "tls_trust_file /etc/ssl/certs/ca-certificates.crt" >> ~/.msmtprc
+          echo "logfile ~/.msmtp.log" >> ~/.msmtprc
+          echo "account gmail" >> ~/.msmtprc
+          echo "host smtp.gmail.com" >> ~/.msmtprc
+          echo "port 587" >> ~/.msmtprc
+          echo "from $EMAIL_USER" >> ~/.msmtprc
+          echo "user $EMAIL_USER" >> ~/.msmtprc
+          echo "password $EMAIL_PASSWORD" >> ~/.msmtprc
+          echo "account default : gmail" >> ~/.msmtprc
+          chmod 600 ~/.msmtprc
+
+          echo -e "Subject: ✅ GitHub Backup Completed\n\nBackup finished at: ${{ steps.vars.outputs.timestamp }}" | msmtp "$EMAIL_RECEIVER"
