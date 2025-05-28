@@ -1,5 +1,5 @@
 ---
-name: 워크플로우 보안 설정 점검 (수동 PR 안내용)
+name: 워크플로우 보안 설정 최적화 점검 (자동 수정 + 수동 PR 안내)
 
 on:
   workflow_dispatch:
@@ -28,41 +28,44 @@ jobs:
             sed -i 's/contents: write/contents: read/g' "$FILE"
             sed -i 's/actions: write/actions: read/g' "$FILE"
           done
-          echo "✅ 보안 설정 수정 완료 (자동 커밋은 하지 않음)"
+          echo "✅ 보안 설정 수정 완료 (자동 커밋 및 푸시는 하지 않음)"
 
-      - name: 📋 변경사항 diff 출력
+      - name: 📋 변경사항 diff 출력 (커밋 전용 Git repo 사용)
         run: |
-          echo "📄 변경된 내용 (Diff):"
-          git config user.name "temp"
-          git config user.email "temp@temp.com"
-          git init temp_repo
+          echo "📄 변경된 워크플로우 diff 출력 중..."
+          mkdir temp_repo
           cd temp_repo
+
           git init
+          git config user.email "github-actions@github.com"
+          git config user.name "github-actions"
+
           cp -r ../backup_workflows/* .
           git add .
           git commit -m "original workflows"
-          cd ..
-          cp -r .github/workflows/* temp_repo/
-          cd temp_repo
+
+          cp -r ../.github/workflows/* .
           git add .
+          echo "🔍 아래는 변경된 내용입니다:"
           git diff --staged
           cd ..
 
       - name: 📌 수동 PR 생성 방법 안내
         run: |
           echo ""
-          echo "📘 수동 PR 생성 방법 안내:"
-          echo "1. 로컬 저장소에서 브랜치를 생성하세요:"
+          echo "📘 수동 PR 생성 방법:"
+          echo ""
+          echo "1. 로컬 저장소에서 새로운 브랜치 생성:"
           echo "   git checkout -b fix/security-auto-$(date +%Y%m%d%H%M)"
           echo ""
-          echo "2. 아래 수정사항을 반영하여 직접 수정하세요 (이 워크플로우에서 출력된 diff를 참고):"
-          echo "   - .github/workflows/*.yml 내 permissions, id-token, contents, security-events 등 최소 권한으로"
+          echo "2. 다음 변경사항을 직접 반영 (위 diff 참고)"
+          echo "   - .github/workflows/*.yml 권한 설정을 최소화"
           echo ""
-          echo "3. 변경 후 커밋 및 푸시:"
+          echo "3. 커밋 및 원격 푸시:"
           echo "   git add .github/workflows"
           echo "   git commit -m '🔒 워크플로우 보안 설정 수동 최적화'"
           echo "   git push origin fix/security-auto-$(date +%Y%m%d%H%M)"
           echo ""
-          echo "4. GitHub 웹에서 Pull Request를 생성하세요."
+          echo "4. GitHub 웹에서 Pull Request 생성"
           echo ""
-          echo "✅ 작업 완료 - 자동 푸시는 하지 않았습니다."
+          echo "✅ 이 워크플로우는 자동 푸시 없이 수정 사항만 안내합니다."
