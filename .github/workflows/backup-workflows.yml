@@ -25,7 +25,7 @@ jobs:
         echo "timestamp=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
         echo "date_fmt=$(date '+%Y-%m-%d %H:%M:%S (KST)')" >> $GITHUB_OUTPUT
 
-    - name: Install system packages
+    - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y apache2 apache2-utils unzip curl default-jdk
@@ -45,26 +45,24 @@ jobs:
 
     - name: Create directories
       run: |
-        mkdir -p apache_backups nt-backup/bin db_backups backups reports eai_backups storage/logs storage/tmp storage/data springboot_backups maven_backups
+        mkdir -p apache_backups nt-backup/bin db_backups backups reports eai_backups storage/logs storage/tmp storage/data springboot springboot_backups maven_backups
 
     - name: Install Spring Boot sample JAR
       run: |
-        mkdir -p /srv/springboot
-        curl -L https://repo.spring.io/release/org/springframework/boot/spring-boot-samples/2.7.3/spring-boot-samples-2.7.3.jar -o /srv/springboot/app.jar
-        echo "java -jar /srv/springboot/app.jar" > /srv/springboot/run.sh
-        chmod +x /srv/springboot/run.sh
+        curl -L https://repo.spring.io/release/org/springframework/boot/spring-boot-samples/2.7.3/spring-boot-samples-2.7.3.jar -o springboot/app.jar
+        echo "java -jar $(pwd)/springboot/app.jar" > springboot/run.sh
+        chmod +x springboot/run.sh
 
     - name: Install Maven
       run: |
         curl -LO https://downloads.apache.org/maven/maven-3/3.9.6/binaries/apache-maven-3.9.6-bin.zip
-        unzip apache-maven-3.9.6-bin.zip -d /opt
-        ln -s /opt/apache-maven-3.9.6 /opt/maven
-        echo "export PATH=/opt/maven/bin:$PATH" >> $GITHUB_ENV
+        unzip apache-maven-3.9.6-bin.zip -d ./maven_backups
+        mv maven_backups/apache-maven-3.9.6 maven_backups/maven-${{ steps.vars.outputs.timestamp }}
+        echo "export PATH=$(pwd)/maven_backups/maven-${{ steps.vars.outputs.timestamp }}/bin:$PATH" >> $GITHUB_ENV
 
-    - name: Backup Spring Boot and Maven
+    - name: Backup Spring Boot JAR
       run: |
-        cp /srv/springboot/app.jar springboot_backups/app-${{ steps.vars.outputs.timestamp }}.jar
-        cp -r /opt/apache-maven-3.9.6 maven_backups/maven-${{ steps.vars.outputs.timestamp }}
+        cp springboot/app.jar springboot_backups/app-${{ steps.vars.outputs.timestamp }}.jar
 
     - name: Backup workflows and DB
       run: |
@@ -90,7 +88,7 @@ jobs:
       run: |
         cpu_usage=$(top -bn1 | grep "Cpu(s)" | awk '{print $2 + $4}')
         mem_usage=$(free | awk '/Mem/ {printf("%.2f"), $3/$2 * 100}')
-        disk_usage=$(df -h / | awk 'NR==2 {print $5}')
+        disk_usage=$(df -h . | awk 'NR==2 {print $5}')
         echo "cpu=$cpu_usage" >> $GITHUB_OUTPUT
         echo "memory=$mem_usage" >> $GITHUB_OUTPUT
         echo "disk=$disk_usage" >> $GITHUB_OUTPUT
@@ -121,7 +119,7 @@ jobs:
         echo "- Memory 사용률: `${{ steps.sysstat.outputs.memory }}%`" >> $REPORT
         echo "- Disk 사용률: `${{ steps.sysstat.outputs.disk }}`" >> $REPORT
         echo "## 📦 백업 항목" >> $REPORT
-        echo "- workflows/, db_backups/, apache_backups/, nt-backup/, eai_backups/" >> $REPORT
+        echo "- workflows/, db_backups/, apache_backups/, nt-backup/, eai_backups/, springboot_backups/, maven_backups/" >> $REPORT
         echo "## 🧹 보관 정책" >> $REPORT
         echo "- 2일 초과 파일 자동 삭제됨" >> $REPORT
         echo "" >> $REPORT
