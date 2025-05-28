@@ -1,4 +1,4 @@
-name: Full System Setup, Backup & Pages Report
+name: Full Backup with EAI Analysis
 
 on:
   schedule:
@@ -11,8 +11,8 @@ permissions:
   id-token: write
 
 jobs:
-  system-backup:
-    name: System Install, Backup, and Report
+  full-backup:
+    name: System Install, Backup, and EAI Analysis
     runs-on: ubuntu-latest
 
     steps:
@@ -25,10 +25,13 @@ jobs:
           echo "timestamp=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
           echo "date_fmt=$(date '+%Y-%m-%d %H:%M:%S (KST)')" >> $GITHUB_OUTPUT
 
-      - name: Install Apache and setup authentication
+      - name: Install Apache
         run: |
           sudo apt-get update
           sudo apt-get install -y apache2 apache2-utils
+
+      - name: Setup Apache authentication
+        run: |
           sudo mkdir -p /etc/apache2/auth
           sudo htpasswd -bc /etc/apache2/auth/.htpasswd admin password123
           echo '<Directory "/var/www/html">' | sudo tee /etc/apache2/conf-available/auth.conf
@@ -40,31 +43,20 @@ jobs:
           sudo a2enconf auth
           sudo systemctl restart apache2
 
-      - name: Backup Apache configuration safely
+      - name: Create directories
         run: |
-          mkdir -p apache_backups
-          if [ -d /etc/apache2 ]; then
-            sudo cp -r /etc/apache2 apache_backups/etc_apache2_${{ steps.vars.outputs.timestamp }}
-            echo "Apache configuration copied." > apache_backups/apache-copy.log
-          else
-            echo "Apache not found on runner." > apache_backups/apache-copy.log
-          fi
+          mkdir -p apache_backups nt-backup/bin db_backups backups storage/logs storage/tmp storage/data reports eai_backups
 
-      - name: Simulate NT Backup installation
+      - name: Backup Apache configuration
         run: |
-          mkdir -p nt-backup/bin
+          sudo cp -r /etc/apache2 apache_backups/etc_apache2_${{ steps.vars.outputs.timestamp }}
+          echo "Apache configuration backup completed." > apache_backups/apache-copy-${{ steps.vars.outputs.timestamp }}.log
+
+      - name: Simulate NT Backup
+        run: |
           echo "#!/bin/bash\necho 'NT Backup service running...'" > nt-backup/bin/ntbackup
           chmod +x nt-backup/bin/ntbackup
-          echo "NT backup initialized." > nt-backup/nt-service.log
-
-      - name: Create other required directories
-        run: |
-          mkdir -p backups
-          mkdir -p db_backups
-          mkdir -p storage/logs
-          mkdir -p storage/tmp
-          mkdir -p storage/data
-          mkdir -p reports
+          echo "NT Backup initialized at ${{ steps.vars.outputs.date_fmt }}" > nt-backup/nt-service-${{ steps.vars.outputs.timestamp }}.log
 
       - name: Backup workflows
         run: |
@@ -72,55 +64,72 @@ jobs:
 
       - name: Simulate DB backup
         run: |
-          echo "-- Daily DB backup" > db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
-          echo "CREATE TABLE IF NOT EXISTS sample (id INT);" >> db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
+          echo "-- Daily DB dump" > db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
+          echo "CREATE TABLE log (id INT);" >> db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
 
-      - name: Delete old ZIPs (30+ days)
+      - name: Simulate EAI 송수신 로그
         run: |
-          find backups -type f -name "*.zip" -mtime +30 -exec echo "🗑️ Deleting {}" \; -exec rm {} \;
-          find apache_backups -type f -name "*.zip" -mtime +30 -exec echo "🗑️ Deleting {}" \; -exec rm {} \;
+          echo "<msg><status>OK</status><payload>Hello</payload></msg>" > eai_backups/eai-send-${{ steps.vars.outputs.timestamp }}.xml
+          echo "<msg><status>FAIL</status><payload>Error</payload></msg>" > eai_backups/eai-receive-${{ steps.vars.outputs.timestamp }}.xml
 
-      - name: Generate Markdown backup report
+      - name: Analyze EAI Logs
+        id: eai
+        run: |
+          send_status=$(grep -o '<status>[^<]*</status>' eai_backups/eai-send-${{ steps.vars.outputs.timestamp }}.xml | sed 's/<[^>]*>//g')
+          receive_status=$(grep -o '<status>[^<]*</status>' eai_backups/eai-receive-${{ steps.vars.outputs.timestamp }}.xml | sed 's/<[^>]*>//g')
+          echo "send_status=$send_status" >> $GITHUB_OUTPUT
+          echo "receive_status=$receive_status" >> $GITHUB_OUTPUT
+
+      - name: Clean up backups older than 2 days
+        run: |
+          find backups -type f -mtime +2 -exec rm -v {} \;
+          find db_backups -type f -mtime +2 -exec rm -v {} \;
+          find apache_backups -type f -mtime +2 -exec rm -v {} \;
+          find nt-backup -type f -mtime +2 -exec rm -v {} \;
+          find reports -type f -mtime +2 -exec rm -v {} \;
+          find eai_backups -type f -mtime +2 -exec rm -v {} \;
+
+      - name: Generate Markdown report
         run: |
           REPORT="reports/backup-report-${{ steps.vars.outputs.timestamp }}.md"
-          echo "# ✅ Backup Report - ${{ steps.vars.outputs.date_fmt }}" > "$REPORT"
-          echo "" >> "$REPORT"
-          echo "## ✅ Apache Installed & Auth Enabled" >> "$REPORT"
-          echo "- Apache with htpasswd at \`/etc/apache2/auth/.htpasswd\`" >> "$REPORT"
-          echo "- Auth config: \`/etc/apache2/conf-available/auth.conf\`" >> "$REPORT"
-          echo "" >> "$REPORT"
-          echo "## ✅ NT Backup Simulated" >> "$REPORT"
-          echo "- \`nt-backup/bin/ntbackup\` and log file created" >> "$REPORT"
-          echo "" >> "$REPORT"
-          echo "## 📁 Other Directories" >> "$REPORT"
-          echo "- \`storage/\`, \`apache_backups/\`, \`backups/\`, \`db_backups/\`" >> "$REPORT"
-          echo "" >> "$REPORT"
-          echo "## 🧹 Old Backups Cleaned" >> "$REPORT"
-          echo "- ZIPs over 30 days in backups/* were deleted" >> "$REPORT"
-          echo "" >> "$REPORT"
-          echo "---" >> "$REPORT"
-          echo "_Generated by GitHub Actions_" >> "$REPORT"
+          echo "# 🗂️ Backup Report - ${{ steps.vars.outputs.date_fmt }}" > $REPORT
+          echo "" >> $REPORT
+          echo "## ✅ Apache" >> $REPORT
+          echo "- Configuration backed up." >> $REPORT
+          echo "" >> $REPORT
+          echo "## 💾 DB Backup" >> $REPORT
+          echo "- File: db-backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql" >> $REPORT
+          echo "" >> $REPORT
+          echo "## 🔄 EAI 송수신 로그" >> $REPORT
+          echo "- 송신 상태: `${{ steps.eai.outputs.send_status }}`" >> $REPORT
+          echo "- 수신 상태: `${{ steps.eai.outputs.receive_status }}`" >> $REPORT
+          if [ "${{ steps.eai.outputs.receive_status }}" != "OK" ]; then
+            echo "- ⚠️ 수신 오류 발생!" >> $REPORT
+          fi
+          echo "" >> $REPORT
+          echo "## 🧹 보관 주기" >> $REPORT
+          echo "- 2일 이상된 백업 자동 삭제됨" >> $REPORT
+          echo "" >> $REPORT
+          echo "_Generated by GitHub Actions_" >> $REPORT
 
       - name: Commit and push
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git pull origin ${{ github.ref_name }}
-          git add nt-backup/ apache_backups/ reports/*.md backups/*.zip db_backups/*.sql storage/
-          git commit -m "🛠️ Full system install & report at ${{ steps.vars.outputs.timestamp }}" || echo "Nothing to commit"
+          git add reports/*.md nt-backup/ apache_backups/ db_backups/ backups/ eai_backups/
+          git commit -m "📦 Backup + EAI 분석 완료: ${{ steps.vars.outputs.timestamp }}" || echo "Nothing to commit"
           git push origin ${{ github.ref_name }}
 
   deploy-pages:
-    needs: system-backup
-    name: Deploy Backup Reports to GitHub Pages
+    needs: full-backup
     runs-on: ubuntu-latest
     if: ${{ github.ref_name == 'main' }}
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Copy reports to pages directory
+      - name: Prepare GitHub Pages content
         run: |
           mkdir -p public
           cp -r reports/* public/
