@@ -1,16 +1,16 @@
-name: Daily Workflow & DB Backup with Report
+name: Full System Setup, Backup & Report
 
 on:
   schedule:
-    - cron: '0 23 * * *'  # 매일 오전 8시 (KST 기준)
+    - cron: '0 23 * * *'  # 매일 오전 8시 (KST)
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  backup:
-    name: Daily Backup and Markdown Report
+  system-backup:
+    name: Apache & NT Backup Setup + Full Report
     runs-on: ubuntu-latest
 
     steps:
@@ -23,55 +23,61 @@ jobs:
           echo "timestamp=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
           echo "date_fmt=$(date '+%Y-%m-%d %H:%M:%S (KST)')" >> $GITHUB_OUTPUT
 
-      - name: Create necessary folders
+      - name: Install Apache2 and setup directories
         run: |
-          mkdir -p backups
-          mkdir -p db_backups
-          mkdir -p storage/logs
-          mkdir -p storage/tmp
-          mkdir -p storage/data
+          sudo apt-get update
+          sudo apt-get install -y apache2 apache2-utils
+          sudo mkdir -p /etc/apache2/auth
+          sudo htpasswd -bc /etc/apache2/auth/.htpasswd admin password123
+          echo '<Directory "/var/www/html">' | sudo tee /etc/apache2/conf-available/auth.conf
+          echo '  AuthType Basic' | sudo tee -a /etc/apache2/conf-available/auth.conf
+          echo '  AuthName "Restricted"' | sudo tee -a /etc/apache2/conf-available/auth.conf
+          echo '  AuthUserFile /etc/apache2/auth/.htpasswd' | sudo tee -a /etc/apache2/conf-available/auth.conf
+          echo '  Require valid-user' | sudo tee -a /etc/apache2/conf-available/auth.conf
+          echo '</Directory>' | sudo tee -a /etc/apache2/conf-available/auth.conf
+          sudo a2enconf auth
+          sudo systemctl restart apache2
+
+      - name: Simulate NT Backup installation
+        run: |
+          mkdir -p nt-backup/bin
+          echo "#!/bin/bash\necho 'NT Backup service running...'" > nt-backup/bin/ntbackup
+          chmod +x nt-backup/bin/ntbackup
+          echo "NT backup initialized." > nt-backup/nt-service.log
+
+      - name: Simulate Apache/NT processes (logs)
+        run: |
+          ps -e > apache_backups/apache-process-${{ steps.vars.outputs.timestamp }}.log || true
+          echo "NT backup process simulation completed" >> nt-backup/nt-service.log
+
+      - name: Generate backup report (Markdown)
+        run: |
           mkdir -p reports
-
-      - name: Compress workflows directory
-        run: |
-          zip -r "backups/workflows-backup-${{ steps.vars.outputs.timestamp }}.zip" .github/workflows
-
-      - name: Simulate DB backup
-        run: |
-          echo "-- Daily DB backup" > db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
-          echo "CREATE TABLE IF NOT EXISTS sample (id INT);" >> db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
-
-      - name: Delete ZIP files older than 30 days
-        run: |
-          find backups -type f -name "*.zip" -mtime +30 -exec echo "🗑️ Deleting {}" \; -exec rm {} \;
-
-      - name: Generate Markdown backup report
-        run: |
-          REPORT="reports/backup-report-${{ steps.vars.outputs.timestamp }}.md"
-          echo "# ✅ Backup Report - ${{ steps.vars.outputs.date_fmt }}" > "$REPORT"
+          REPORT="reports/system-backup-report-${{ steps.vars.outputs.timestamp }}.md"
+          echo "# 🛡️ Full System Report - ${{ steps.vars.outputs.date_fmt }}" > "$REPORT"
           echo "" >> "$REPORT"
-          echo "## ✅ Workflows Backup" >> "$REPORT"
-          echo "- Created: \`backups/workflows-backup-${{ steps.vars.outputs.timestamp }}.zip\`" >> "$REPORT"
+          echo "## ✅ Apache Installation & Auth Setup" >> "$REPORT"
+          echo "- Apache installed with htpasswd auth at \`/etc/apache2/auth/.htpasswd\`" >> "$REPORT"
+          echo "- Config: \`/etc/apache2/conf-available/auth.conf\`" >> "$REPORT"
           echo "" >> "$REPORT"
-          echo "## ✅ Database Backup" >> "$REPORT"
-          echo "- Created: \`db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql\`" >> "$REPORT"
+          echo "## ✅ NT Backup System Simulated" >> "$REPORT"
+          echo "- Executable: \`nt-backup/bin/ntbackup\`" >> "$REPORT"
+          echo "- Log file: \`nt-backup/nt-service.log\`" >> "$REPORT"
           echo "" >> "$REPORT"
-          echo "## 📁 Storage Directories" >> "$REPORT"
-          echo "- \`storage/logs/\`" >> "$REPORT"
-          echo "- \`storage/tmp/\`" >> "$REPORT"
-          echo "- \`storage/data/\`" >> "$REPORT"
+          echo "## 🔧 Directories Created" >> "$REPORT"
+          echo "- \`/etc/apache2\`, \`apache_backups/\`, \`nt-backup/\`" >> "$REPORT"
           echo "" >> "$REPORT"
-          echo "## 🧹 Old ZIP Cleaned" >> "$REPORT"
-          echo "- ZIPs older than 30 days automatically deleted" >> "$REPORT"
+          echo "## 📄 Process Log" >> "$REPORT"
+          echo "- \`apache_backups/apache-process-${{ steps.vars.outputs.timestamp }}.log\`" >> "$REPORT"
           echo "" >> "$REPORT"
           echo "---" >> "$REPORT"
-          echo "_Generated by GitHub Actions_" >> "$REPORT"
+          echo "_Auto-generated by GitHub Actions_" >> "$REPORT"
 
-      - name: Commit and push changes
+      - name: Commit and push
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git pull origin ${{ github.ref_name }}
-          git add backups/*.zip db_backups/*.sql reports/*.md storage/
-          git commit -m "📦 Daily backup and report at ${{ steps.vars.outputs.timestamp }}" || echo "Nothing to commit"
+          git add nt-backup/ apache_backups/ reports/*.md
+          git commit -m "🛠️ Full system install & report at ${{ steps.vars.outputs.timestamp }}" || echo "Nothing to commit"
           git push origin ${{ github.ref_name }}
