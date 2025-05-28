@@ -2,7 +2,7 @@ name: Full System Automation with Backup, Test, and Reporting
 
 on:
   schedule:
-    - cron: '0 23 * * *'  # 매일 오전 8시 (KST 기준)
+    - cron: '0 23 * * *'
   workflow_dispatch:
 
 permissions:
@@ -27,22 +27,12 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y apache2 apache2-utils unzip curl default-jdk
+        sudo apt-get install -y apache2 unzip curl default-jdk
 
-    - name: Setup Apache with auth
+    - name: Setup Apache (No Auth)
       run: |
-        sudo mkdir -p /etc/apache2/auth
-        echo "admin:$(openssl passwd -crypt password123)" | sudo tee /etc/apache2/auth/.htpasswd
-        cat <<EOF | sudo tee /etc/apache2/conf-available/auth.conf
-<Directory "/var/www/html">
-  AuthType Basic
-  AuthName "Restricted"
-  AuthUserFile /etc/apache2/auth/.htpasswd
-  Require valid-user
-</Directory>
-EOF
-        sudo a2enconf auth
-        sudo systemctl restart apache2
+        sudo systemctl enable apache2
+        sudo systemctl start apache2
 
     - name: Create folders
       run: |
