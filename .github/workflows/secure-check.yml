@@ -1,0 +1,68 @@
+---
+name: 워크플로우 보안 설정 점검 (수동 PR 안내용)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  secure-fix-manual-pr:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📦 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 🔧 보안 설정 자동 수정 (시뮬레이션)
+        run: |
+          echo "🔐 .github/workflows/*.yml 보안 설정 최적화 중..."
+          mkdir -p backup_workflows
+          cp -r .github/workflows/* backup_workflows/
+
+          find .github/workflows -name "*.yml" | while read FILE; do
+            sed -i 's/permissions: write/permissions: read/g' "$FILE"
+            sed -i 's/id-token: write/id-token: read/g' "$FILE"
+            sed -i 's/security-events: write/security-events: read/g' "$FILE"
+            sed -i 's/contents: write/contents: read/g' "$FILE"
+            sed -i 's/actions: write/actions: read/g' "$FILE"
+          done
+          echo "✅ 보안 설정 수정 완료 (자동 커밋은 하지 않음)"
+
+      - name: 📋 변경사항 diff 출력
+        run: |
+          echo "📄 변경된 내용 (Diff):"
+          git config user.name "temp"
+          git config user.email "temp@temp.com"
+          git init temp_repo
+          cd temp_repo
+          git init
+          cp -r ../backup_workflows/* .
+          git add .
+          git commit -m "original workflows"
+          cd ..
+          cp -r .github/workflows/* temp_repo/
+          cd temp_repo
+          git add .
+          git diff --staged
+          cd ..
+
+      - name: 📌 수동 PR 생성 방법 안내
+        run: |
+          echo ""
+          echo "📘 수동 PR 생성 방법 안내:"
+          echo "1. 로컬 저장소에서 브랜치를 생성하세요:"
+          echo "   git checkout -b fix/security-auto-$(date +%Y%m%d%H%M)"
+          echo ""
+          echo "2. 아래 수정사항을 반영하여 직접 수정하세요 (이 워크플로우에서 출력된 diff를 참고):"
+          echo "   - .github/workflows/*.yml 내 permissions, id-token, contents, security-events 등 최소 권한으로"
+          echo ""
+          echo "3. 변경 후 커밋 및 푸시:"
+          echo "   git add .github/workflows"
+          echo "   git commit -m '🔒 워크플로우 보안 설정 수동 최적화'"
+          echo "   git push origin fix/security-auto-$(date +%Y%m%d%H%M)"
+          echo ""
+          echo "4. GitHub 웹에서 Pull Request를 생성하세요."
+          echo ""
+          echo "✅ 작업 완료 - 자동 푸시는 하지 않았습니다."
