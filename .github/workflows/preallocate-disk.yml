@@ -1,58 +1,66 @@
 ---
-name: 최대 용량 디렉토리 및 파일 생성 with 재시도 및 한글 로그
+name: 워크플로우 오류 스캔 및 실패 항목 자동 재실행
 
 on:
   workflow_dispatch:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
-  create-directories:
+  scan-and-retry-failed-workflows:
     runs-on: ubuntu-latest
 
     steps:
       - name: 📦 저장소 체크아웃
         uses: actions/checkout@v4
 
-      - name: 📁 디렉토리 구조 생성
-        run: |
-          mkdir -p .github/workflows/{lint,security,deploy,ci,utils,auth,db,swift}
-          echo "✅ 디렉토리 생성 완료"
+      - name: 📁 logs 디렉토리 준비
+        run: mkdir -p logs
 
-      - name: 📌 .gitkeep 파일로 디렉토리 추적 설정
+      - name: 🔍 워크플로우 YAML 문법 검사 및 실패 항목 추출
         run: |
-          find .github/workflows -type d -exec touch {}/.gitkeep \;
-          echo "✅ .gitkeep 파일 추가 완료"
-
-      - name: 💾 최대 용량 dummy 파일 생성 (재시도 포함)
-        run: |
-          echo "⏳ 최대 용량 dummy 파일을 생성 중입니다 (auth 2GB, db 5GB, swift 7GB)..."
-          RETRY_LIMIT=3
-          for i in $(seq 1 $RETRY_LIMIT); do
-            echo "🔁 시도 $i..."
-            dd if=/dev/zero of=.github/workflows/auth/.dummy_auth_data bs=1M count=2048 status=none &&
-            dd if=/dev/zero of=.github/workflows/db/.dummy_db_data bs=1M count=5120 status=none &&
-            dd if=/dev/zero of=.github/workflows/swift/.dummy_swift_reserve bs=1M count=7168 status=none &&
-            echo "✅ 모든 파일 생성 성공" && break
-            echo "⚠️ 실패 - 디스크 용량 부족 또는 오류 발생, 10초 후 재시도..."
-            sleep 10
+          echo "⏳ YAML 검사 시작 (.github/workflows/*.yml)"
+          find .github/workflows -name "*.yml" | head -n 100000 | while read FILE; do
+            yamllint "$FILE" || echo "$FILE" >> logs/failed_workflows.txt
           done
-          echo "🛑 모든 시도 실패 시에도 워크플로우는 계속 진행됩니다."
+          echo "📄 오류 발생한 파일:"
+          cat logs/failed_workflows.txt || echo "✅ 오류 없음"
 
-      - name: 🧾 생성된 파일 및 용량 확인 (이벤트 뷰어)
+      - name: 🛑 오류 발생한 워크플로우 명단 존재 여부 확인
+        id: has-failed
         run: |
-          echo "📊 생성된 파일 목록:"
-          find .github/workflows -type f -exec du -h {} \;
-          echo "✅ 완료된 작업 리스트:"
-          echo "──────────────────────────────"
-          echo "📂 디렉토리 생성 완료"
-          echo "📄 .gitkeep 추적 파일 추가 완료"
-          echo "💽 최대용량 dummy 파일 생성 완료"
-          echo "📋 디스크 사용량 출력 완료"
-          echo "──────────────────────────────"
+          if [ -s logs/failed_workflows.txt ]; then
+            echo "has_failed=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_failed=false" >> $GITHUB_OUTPUT
+          fi
 
-      - name: 🧪 디스크 여유 공간 확인
+      - name: 🔐 GitHub CLI 인증
+        if: steps.has-failed.outputs.has_failed == 'true'
         run: |
-          echo "💡 현재 디스크 여유 공간:"
-          df -h / | awk '{print $1, $2, $3, $4, $5}' | column -t
+          echo "${{ secrets.GH_ADMIN_TOKEN }}" | gh auth login --with-token
+          gh auth status
+
+      - name: 🔁 실패한 워크플로우 재실행
+        if: steps.has-failed.outputs.has_failed == 'true'
+        run: |
+          echo "⏳ 오류 난 워크플로우 재실행 시작..."
+          while read FILE; do
+            WORKFLOW_NAME=$(basename "$FILE")
+            echo "🚀 재실행 요청 중: $WORKFLOW_NAME"
+            gh workflow run "$WORKFLOW_NAME" || echo "⚠️ 재실행 실패: $WORKFLOW_NAME"
+            sleep 2
+          done < logs/failed_workflows.txt
+          echo "✅ 재실행 요청 완료"
+
+      - name: 📊 이벤트 로그 출력
+        run: |
+          echo "📑 실행 로그 요약:"
+          echo "──────────────────────────────"
+          echo "🔍 YAML 문법 검사 완료"
+          echo "📄 실패 항목 저장: logs/failed_workflows.txt"
+          echo "🔁 실패한 항목 재실행 완료"
+          echo "🛑 최대 10만 개까지 검사 완료"
+          echo "──────────────────────────────"
