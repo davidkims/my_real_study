@@ -1,9 +1,7 @@
 ---
-name: 보안 이벤트 50개 이상 증가 감지 및 자동 수정
+name: 자동 보안 설정 최적화 with GH_ADMIN_TOKEN 확인 및 PR 생성
 
 on:
-  schedule:
-    - cron: '0 * * * *' # 매 시간 실행
   workflow_dispatch:
 
 permissions:
@@ -11,29 +9,41 @@ permissions:
   pull-requests: write
 
 jobs:
-  detect-and-fix-security-overload:
+  secure-fix-with-token-check:
     runs-on: ubuntu-latest
 
     steps:
+      - name: 🔍 GH_ADMIN_TOKEN 존재 확인
+        id: token-check
+        run: |
+          if [ -z "${{ secrets.GH_ADMIN_TOKEN }}" ]; then
+            echo "token_available=false" >> $GITHUB_OUTPUT
+          else
+            echo "token_available=true" >> $GITHUB_OUTPUT
+
+      - name: ❌ 토큰 없음 안내 및 중단
+        if: steps.token-check.outputs.token_available == 'false'
+        run: |
+          echo "❗ GH_ADMIN_TOKEN이 설정되지 않았습니다."
+          echo "🛠️ 토큰 생성 절차:"
+          echo "1. https://github.com/settings/tokens?type=beta 접속"
+          echo "2. 권한:"
+          echo "   - Contents: Read and write"
+          echo "   - Actions: Read and write"
+          echo "   - Workflows: Read and write"
+          echo "3. 생성한 토큰을 레포지토리에 등록:"
+          echo "   Settings > Secrets > Actions > New repository secret"
+          echo "   이름: GH_ADMIN_TOKEN"
+          echo "🔁 토큰 등록 후 이 워크플로우를 다시 실행해 주세요."
+          exit 1
+
       - name: 📦 저장소 체크아웃
         uses: actions/checkout@v4
+        if: steps.token-check.outputs.token_available == 'true'
 
-      - name: 🔍 보안 이벤트 수 집계
-        id: security-count
+      - name: 🔧 보안 최적화 수행
+        if: steps.token-check.outputs.token_available == 'true'
         run: |
-          echo "🔐 .github/workflows 내 보안 이벤트/permissions 검사 중..."
-          COUNT=$(grep -rE 'permissions:|secrets:|security-events:|actions:|id-token:|contents:' .github/workflows | wc -l)
-          echo "📊 총 보안 관련 항목 수: $COUNT"
-          echo "count=$COUNT" >> $GITHUB_OUTPUT
-
-      - name: 🛑 50개 이상일 경우 자동 처리 진행 여부 확인
-        if: ${{ steps.security-count.outputs.count > 49 }}
-        run: echo "⚠️ 50개 이상 감지됨 → 자동 수정 진행"
-
-      - name: 🛠️ 자동 보안 설정 최적화 적용
-        if: ${{ steps.security-count.outputs.count > 49 }}
-        run: |
-          echo "🔧 보안 설정 최적화 적용 중..."
           find .github/workflows -name "*.yml" | while read FILE; do
             sed -i 's/permissions: write/permissions: read/g' "$FILE"
             sed -i 's/id-token: write/id-token: read/g' "$FILE"
@@ -41,10 +51,12 @@ jobs:
             sed -i 's/contents: write/contents: read/g' "$FILE"
             sed -i 's/actions: write/actions: read/g' "$FILE"
           done
-          echo "✅ 보안 권한이 'read'로 최소화되었습니다."
+          echo "✅ 보안 설정 자동 최적화 완료"
 
-      - name: 🔀 PR을 위한 브랜치 생성 및 커밋
-        if: ${{ steps.security-count.outputs.count > 49 }}
+      - name: 🔐 Git 설정 및 브랜치 푸시
+        if: steps.token-check.outputs.token_available == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -52,23 +64,18 @@ jobs:
           git checkout -b $BRANCH
           git add .github/workflows
           git commit -m "🔒 자동 보안 설정 최적화 적용"
-          git push origin $BRANCH
+          git push https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }} $BRANCH
           echo "branch=$BRANCH" >> $GITHUB_ENV
 
       - name: 🚀 PR 생성
-        if: ${{ steps.security-count.outputs.count > 49 }}
+        if: steps.token-check.outputs.token_available == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
         run: |
+          gh auth login --with-token <<< "${GH_TOKEN}"
           gh pr create \
             --title "🔒 자동 보안 설정 최적화 PR" \
-            --body "워크플로우 파일 내 보안 항목이 50개를 초과하여 자동 최적화 수정이 적용되었습니다." \
+            --body "워크플로우 파일 내 보안 항목이 50개 이상으로 자동 최적화가 적용되었습니다." \
             --head "$BRANCH" \
             --base "main"
-          echo "✅ PR 생성 완료"
-
-      - name: 📝 수정된 diff 미리보기
-        if: ${{ steps.security-count.outputs.count > 49 }}
-        run: |
-          echo "📋 수정된 워크플로우 diff:"
-          git --no-pager diff HEAD~1
+          echo "✅ PR 자동 생성 완료"
