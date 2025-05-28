@@ -1,164 +1,74 @@
-ame: Retryable Secure Swift + .NET Workflow
+---
+name: 보안 이벤트 50개 이상 증가 감지 및 자동 수정
 
 on:
+  schedule:
+    - cron: '0 * * * *' # 매 시간 실행
   workflow_dispatch:
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
-  secure-build:
-    runs-on: windows-latest
-    outputs:
-      retry: ${{ steps.detect-failures.outputs.retry }}
-      attempt: ${{ steps.set-attempt.outputs.attempt }}
+  detect-and-fix-security-overload:
+    runs-on: ubuntu-latest
+
     steps:
-      - name: ⬇️ Checkout Repository
+      - name: 📦 저장소 체크아웃
         uses: actions/checkout@v4
 
-      - name: 📁 Setup Directories
+      - name: 🔍 보안 이벤트 수 집계
+        id: security-count
         run: |
-          mkdir Project
-          mkdir Project/logs
-          mkdir Project/reports
-          mkdir Project/swiftapp
-          echo "" > Project/logs/failures.log
-          dotnet new console --output Project/src --framework net6.0
-        shell: pwsh
+          echo "🔐 .github/workflows 내 보안 이벤트/permissions 검사 중..."
+          COUNT=$(grep -rE 'permissions:|secrets:|security-events:|actions:|id-token:|contents:' .github/workflows | wc -l)
+          echo "📊 총 보안 관련 항목 수: $COUNT"
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
 
-      - name: 🔍 Locate .csproj file
-        id: locate-csproj
+      - name: 🛑 50개 이상일 경우 자동 처리 진행 여부 확인
+        if: ${{ steps.security-count.outputs.count > 49 }}
+        run: echo "⚠️ 50개 이상 감지됨 → 자동 수정 진행"
+
+      - name: 🛠️ 자동 보안 설정 최적화 적용
+        if: ${{ steps.security-count.outputs.count > 49 }}
         run: |
-          $csproj = Get-ChildItem -Path Project/src -Filter *.csproj | Select-Object -First 1
-          if (-not $csproj) {
-            echo "❌ .csproj file not found in Project/src" | Out-File -Append Project/logs/failures.log
-            exit 1
-          }
-          echo "csprojPath=$($csproj.FullName)" >> $env:GITHUB_OUTPUT
-          echo "✅ Found csproj: $($csproj.Name)"
-        shell: pwsh
+          echo "🔧 보안 설정 최적화 적용 중..."
+          find .github/workflows -name "*.yml" | while read FILE; do
+            sed -i 's/permissions: write/permissions: read/g' "$FILE"
+            sed -i 's/id-token: write/id-token: read/g' "$FILE"
+            sed -i 's/security-events: write/security-events: read/g' "$FILE"
+            sed -i 's/contents: write/contents: read/g' "$FILE"
+            sed -i 's/actions: write/actions: read/g' "$FILE"
+          done
+          echo "✅ 보안 권한이 'read'로 최소화되었습니다."
 
-      - name: ⚙️ Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '6.x'
-
-      - name: ⚙️ Setup NuGet
-        uses: nuget/setup-nuget@v1
-
-      - name: ⚙️ Setup MSBuild
-        uses: microsoft/setup-msbuild@v1.0.2
-
-      - name: 📦 Try Swift Install (Skip on Fail)
-        id: swift-install
+      - name: 🔀 PR을 위한 브랜치 생성 및 커밋
+        if: ${{ steps.security-count.outputs.count > 49 }}
         run: |
-          try {
-            $url = "https://download.swift.org/swift-5.9.2-release/swift-5.9.2-RELEASE-windows10.exe"
-            $exe = "$env:RUNNER_TEMP\\swift-installer.exe"
-            Invoke-WebRequest -Uri $url -OutFile $exe -ErrorAction Stop
-            Start-Process -FilePath $exe -ArgumentList "/quiet" -Wait
-            echo "SWIFT_INSTALLED=true" >> $env:GITHUB_ENV
-          } catch {
-            echo "SWIFT_INSTALLED=false" >> $env:GITHUB_ENV
-            Add-Content -Path Project/logs/failures.log -Value "Swift install failed"
-          }
-        shell: powershell
-        continue-on-error: true
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          BRANCH=fix/security-auto-$(date +%Y%m%d%H%M%S)
+          git checkout -b $BRANCH
+          git add .github/workflows
+          git commit -m "🔒 자동 보안 설정 최적화 적용"
+          git push origin $BRANCH
+          echo "branch=$BRANCH" >> $GITHUB_ENV
 
-      - name: ➕ Add Swift to PATH (If Installed)
-        run: |
-          if ($env:SWIFT_INSTALLED -eq "true") {
-            $toolchain = Get-ChildItem -Directory "C:\\Library\\Developer\\Toolchains" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-            if ($toolchain) {
-              echo "##[add-path]$($toolchain.FullName)\\usr\\bin"
-            } else {
-              Add-Content -Path Project/logs/failures.log -Value "Swift toolchain not found"
-            }
-          }
-        shell: powershell
-        continue-on-error: true
-
-      - name: 🧾 Create & Run Swift Project
-        run: |
-          if ($env:SWIFT_INSTALLED -eq "true") {
-            cd Project/swiftapp
-            swift package init --type executable
-            echo 'print("Hello from Swift!")' > Sources/swiftapp/main.swift
-            try {
-              swift build
-              swift run
-            } catch {
-              Add-Content -Path ../logs/failures.log -Value "Swift run failed"
-            }
-          }
-        shell: pwsh
-        continue-on-error: true
-
-      - name: 🔍 Add SCS Analyzer
-        uses: security-code-scan/security-code-scan-add-action@v1
-        with:
-          solution-or-project: ${{ steps.locate-csproj.outputs.csprojPath }}
-
-      - name: 📦 Restore .NET
-        run: dotnet restore "${{ steps.locate-csproj.outputs.csprojPath }}"
-        shell: pwsh
-
-      - name: 🏗 Build .NET
-        run: dotnet build "${{ steps.locate-csproj.outputs.csprojPath }}" --no-restore
-        shell: pwsh
-
-      - name: 📄 Convert to SARIF
-        uses: security-code-scan/security-code-scan-results-action@v1
-        with:
-          project: ${{ steps.locate-csproj.outputs.csprojPath }}
-          output: ./Project/reports/security.sarif
-
-      - name: ☁️ Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ./Project/reports/security.sarif
-
-      - name: 📋 Detect Failures
-        id: detect-failures
-        run: |
-          $log = Get-Content Project/logs/failures.log
-          if ($log.Trim()) {
-            echo "retry=true" >> $env:GITHUB_OUTPUT
-          } else {
-            echo "retry=false" >> $env:GITHUB_OUTPUT
-          }
-        shell: pwsh
-
-      - name: 🔢 Set Attempt Counter
-        id: set-attempt
-        run: echo "attempt=1" >> $env:GITHUB_OUTPUT
-
-  retry-if-needed:
-    needs: secure-build
-    if: ${{ needs.secure-build.outputs.retry == 'true' && needs.secure-build.outputs.attempt < '999' }}
-    runs-on: windows-latest
-    steps:
-      - name: 🔁 Re-dispatch This Workflow
-        uses: benc-uk/workflow-dispatch@v1
-        with:
-          workflow: Retryable Secure Swift + .NET Workflow
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: 📬 Notify Slack
-        uses: slackapi/slack-github-action@v1.24.0
-        with:
-          payload: |
-            {
-              "text": "🔁 Swift/.NET workflow failed and retry triggered (attempt ${{ needs.secure-build.outputs.attempt }})"
-            }
+      - name: 🚀 PR 생성
+        if: ${{ steps.security-count.outputs.count > 49 }}
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-
-      - name: 📧 Notify Email
-        run: echo "Swift/.NET Workflow failed on attempt ${{ needs.secure-build.outputs.attempt }}" | mail -s "Workflow Retry Alert" your@email.com
-        shell: bash
-
-      - name: 🔙 Auto Rollback (if needed)
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git checkout main
-          git reset --hard HEAD~1
-          git push --force
-        shell: bash
-        if: ${{ needs.secure-build.outputs.attempt == '999' }}
+          gh pr create \
+            --title "🔒 자동 보안 설정 최적화 PR" \
+            --body "워크플로우 파일 내 보안 항목이 50개를 초과하여 자동 최적화 수정이 적용되었습니다." \
+            --head "$BRANCH" \
+            --base "main"
+          echo "✅ PR 생성 완료"
+
+      - name: 📝 수정된 diff 미리보기
+        if: ${{ steps.security-count.outputs.count > 49 }}
+        run: |
+          echo "📋 수정된 워크플로우 diff:"
+          git --no-pager diff HEAD~1
