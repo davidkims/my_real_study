@@ -1,0 +1,45 @@
+name: Weekly Workflow & DB Backup
+
+on:
+  schedule:
+    - cron: '0 23 * * 0'  # 매주 월요일 오전 08:00 KST (UTC+9 → 23:00 UTC 일요일)
+  workflow_dispatch:
+
+jobs:
+  backup:
+    name: Backup workflows and DB
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set backup timestamp
+        id: vars
+        run: echo "timestamp=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+
+      - name: Compress .github/workflows directory
+        run: |
+          mkdir -p backups
+          zip -r "backups/workflows-backup-${{ steps.vars.outputs.timestamp }}.zip" .github/workflows
+
+      - name: Simulate DB Backup (SQLite/PostgreSQL/MySQL 등)
+        run: |
+          mkdir -p db_backups
+          # 예: SQLite의 경우
+          if [ -f db.sqlite3 ]; then
+            cp db.sqlite3 "db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sqlite3"
+          else
+            echo "-- Dummy DB backup for example" > db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
+            echo "CREATE TABLE IF NOT EXISTS sample(id INT);" >> db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
+          fi
+
+      - name: Save backup ZIP to repository (commit and push)
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          
+          git pull origin ${{ github.ref_name }}  # 최신 상태 유지
+          git add backups/*.zip db_backups/*
+          git commit -m "🔒 Automated backup at ${{ steps.vars.outputs.timestamp }}" || echo "Nothing to commit"
+          git push origin ${{ github.ref_name }}
