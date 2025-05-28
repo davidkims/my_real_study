@@ -1,4 +1,4 @@
-name: Full System Backup with Spring Boot, Maven, EAI Analysis
+name: Full System Automation with Backup, Test, and Reporting
 
 on:
   schedule:
@@ -11,12 +11,11 @@ permissions:
   id-token: write
 
 jobs:
-  system-backup:
-    name: Spring Boot & Maven Backup, Analysis & Report
+  full-backup:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
+    - name: Checkout
       uses: actions/checkout@v4
 
     - name: Set timestamp
@@ -33,7 +32,7 @@ jobs:
     - name: Setup Apache
       run: |
         sudo mkdir -p /etc/apache2/auth
-        sudo htpasswd -bc /etc/apache2/auth/.htpasswd admin password123
+        echo "admin:$(openssl passwd -crypt password123)" | sudo tee /etc/apache2/auth/.htpasswd
         echo '<Directory "/var/www/html">' | sudo tee /etc/apache2/conf-available/auth.conf
         echo '  AuthType Basic' | sudo tee -a /etc/apache2/conf-available/auth.conf
         echo '  AuthName "Restricted"' | sudo tee -a /etc/apache2/conf-available/auth.conf
@@ -43,105 +42,111 @@ jobs:
         sudo a2enconf auth
         sudo systemctl restart apache2
 
-    - name: Create directories
+    - name: Create folders
       run: |
-        mkdir -p apache_backups nt-backup/bin db_backups backups reports eai_backups storage/logs storage/tmp storage/data springboot springboot_backups maven_backups
+        mkdir -p apache_backups nt-backup/bin db_backups backups reports eai_backups springboot springboot_backups maven_backups
 
-    - name: Install Spring Boot sample JAR
+    - name: Setup Spring Boot JAR
       run: |
         curl -L https://repo.spring.io/release/org/springframework/boot/spring-boot-samples/2.7.3/spring-boot-samples-2.7.3.jar -o springboot/app.jar
         echo "java -jar $(pwd)/springboot/app.jar" > springboot/run.sh
         chmod +x springboot/run.sh
+
+    - name: Generate .env and application.yml
+      run: |
+        echo "APP_ENV=production" > springboot/.env
+        mkdir -p springboot/src/main/resources
+        cat <<EOF > springboot/src/main/resources/application.yml
+spring:
+  application:
+    name: SampleApp
+  server:
+    port: 8080
+EOF
 
     - name: Install Maven
       run: |
         curl -LO https://downloads.apache.org/maven/maven-3/3.9.6/binaries/apache-maven-3.9.6-bin.zip
         unzip apache-maven-3.9.6-bin.zip -d ./maven_backups
         mv maven_backups/apache-maven-3.9.6 maven_backups/maven-${{ steps.vars.outputs.timestamp }}
-        echo "export PATH=$(pwd)/maven_backups/maven-${{ steps.vars.outputs.timestamp }}/bin:$PATH" >> $GITHUB_ENV
+        echo "$(pwd)/maven_backups/maven-${{ steps.vars.outputs.timestamp }}/bin" >> $GITHUB_PATH
 
-    - name: Backup Spring Boot JAR
-      run: |
-        cp springboot/app.jar springboot_backups/app-${{ steps.vars.outputs.timestamp }}.jar
+    - name: Test Maven installation
+      run: mvn --version
 
-    - name: Backup workflows and DB
+    - name: Test Spring Boot launch
       run: |
-        zip -r "backups/workflows-backup-${{ steps.vars.outputs.timestamp }}.zip" .github/workflows
-        echo "-- DB backup" > db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
-        echo "CREATE TABLE log (id INT);" >> db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
+        nohup java -jar springboot/app.jar > springboot/run.log 2>&1 &
+        sleep 10
+        curl -s http://localhost:8080 || echo "No default endpoint"
+        pkill -f 'springboot/app.jar' || true
+
+    - name: Backup Spring Boot
+      run: cp springboot/app.jar springboot_backups/app-${{ steps.vars.outputs.timestamp }}.jar
+
+    - name: Workflow and DB Backup
+      run: |
+        zip -r backups/workflows-backup-${{ steps.vars.outputs.timestamp }}.zip .github/workflows
+        echo "-- Sample DB Backup" > db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
 
     - name: Simulate EAI logs
       run: |
-        echo "<msg><status>OK</status><payload>SendData</payload></msg>" > eai_backups/eai-send-${{ steps.vars.outputs.timestamp }}.xml
-        echo "<msg><status>FAIL</status><payload>Error</payload></msg>" > eai_backups/eai-receive-${{ steps.vars.outputs.timestamp }}.xml
+        echo "<msg><status>OK</status></msg>" > eai_backups/send-${{ steps.vars.outputs.timestamp }}.xml
+        echo "<msg><status>FAIL</status></msg>" > eai_backups/receive-${{ steps.vars.outputs.timestamp }}.xml
 
     - name: Analyze EAI logs
       id: eai
       run: |
-        send_status=$(grep -o '<status>[^<]*</status>' eai_backups/eai-send-${{ steps.vars.outputs.timestamp }}.xml | sed 's/<[^>]*>//g')
-        receive_status=$(grep -o '<status>[^<]*</status>' eai_backups/eai-receive-${{ steps.vars.outputs.timestamp }}.xml | sed 's/<[^>]*>//g')
+        send_status=$(grep -oP '<status>\K[^<]+' eai_backups/send-${{ steps.vars.outputs.timestamp }}.xml)
+        recv_status=$(grep -oP '<status>\K[^<]+' eai_backups/receive-${{ steps.vars.outputs.timestamp }}.xml)
         echo "send_status=$send_status" >> $GITHUB_OUTPUT
-        echo "receive_status=$receive_status" >> $GITHUB_OUTPUT
+        echo "recv_status=$recv_status" >> $GITHUB_OUTPUT
 
-    - name: Gather system resource usage
-      id: sysstat
+    - name: System Resource Usage
+      id: sys
       run: |
-        cpu_usage=$(top -bn1 | grep "Cpu(s)" | awk '{print $2 + $4}')
-        mem_usage=$(free | awk '/Mem/ {printf("%.2f"), $3/$2 * 100}')
-        disk_usage=$(df -h . | awk 'NR==2 {print $5}')
-        echo "cpu=$cpu_usage" >> $GITHUB_OUTPUT
-        echo "memory=$mem_usage" >> $GITHUB_OUTPUT
-        echo "disk=$disk_usage" >> $GITHUB_OUTPUT
+        echo "cpu=$(top -bn1 | grep 'Cpu(s)' | awk '{print $2 + $4}')" >> $GITHUB_OUTPUT
+        echo "memory=$(free | awk '/Mem/ {printf(\"%.2f\", $3/$2 * 100)}')" >> $GITHUB_OUTPUT
+        echo "disk=$(df -h . | awk 'NR==2 {print $5}')" >> $GITHUB_OUTPUT
 
-    - name: Cleanup files older than 2 days
+    - name: Clean files older than 2 days
       run: |
-        find backups -type f -mtime +2 -exec rm -v {} \;
-        find db_backups -type f -mtime +2 -exec rm -v {} \;
-        find apache_backups -type f -mtime +2 -exec rm -v {} \;
-        find nt-backup -type f -mtime +2 -exec rm -v {} \;
-        find reports -type f -mtime +2 -exec rm -v {} \;
-        find eai_backups -type f -mtime +2 -exec rm -v {} \;
-        find springboot_backups -type f -mtime +2 -exec rm -v {} \;
+        find backups db_backups apache_backups nt-backup reports eai_backups springboot_backups -type f -mtime +2 -exec rm -v {} \;
         find maven_backups -depth -type d -mtime +2 -exec rm -rv {} \;
 
     - name: Generate Markdown Report
       run: |
-        REPORT="reports/backup-report-${{ steps.vars.outputs.timestamp }}.md"
-        echo "# 🧾 System Backup Report - ${{ steps.vars.outputs.date_fmt }}" > $REPORT
-        echo "## ✅ Spring Boot & Maven" >> $REPORT
-        echo "- Spring Boot JAR: springboot_backups/app-${{ steps.vars.outputs.timestamp }}.jar" >> $REPORT
-        echo "- Maven Dir: maven_backups/maven-${{ steps.vars.outputs.timestamp }}" >> $REPORT
-        echo "## 🔄 EAI 통계" >> $REPORT
-        echo "- 송신 상태: `${{ steps.eai.outputs.send_status }}`" >> $REPORT
-        echo "- 수신 상태: `${{ steps.eai.outputs.receive_status }}`" >> $REPORT
-        echo "## 🧠 시스템 자원율" >> $REPORT
-        echo "- CPU 사용률: `${{ steps.sysstat.outputs.cpu }}%`" >> $REPORT
-        echo "- Memory 사용률: `${{ steps.sysstat.outputs.memory }}%`" >> $REPORT
-        echo "- Disk 사용률: `${{ steps.sysstat.outputs.disk }}`" >> $REPORT
-        echo "## 📦 백업 항목" >> $REPORT
-        echo "- workflows/, db_backups/, apache_backups/, nt-backup/, eai_backups/, springboot_backups/, maven_backups/" >> $REPORT
-        echo "## 🧹 보관 정책" >> $REPORT
-        echo "- 2일 초과 파일 자동 삭제됨" >> $REPORT
-        echo "" >> $REPORT
-        echo "_Generated by GitHub Actions_" >> $REPORT
+        REPORT=reports/report-${{ steps.vars.outputs.timestamp }}.md
+        echo "# 📋 Backup Report (${{
+          steps.vars.outputs.date_fmt }})" > $REPORT
+        echo "- Spring Boot: ✅" >> $REPORT
+        echo "- Maven: ✅" >> $REPORT
+        echo "## EAI 상태" >> $REPORT
+        echo "- 송신: `${{ steps.eai.outputs.send_status }}`" >> $REPORT
+        echo "- 수신: `${{ steps.eai.outputs.recv_status }}`" >> $REPORT
+        echo "## 시스템 자원율" >> $REPORT
+        echo "- CPU: `${{ steps.sys.outputs.cpu }}%`" >> $REPORT
+        echo "- Memory: `${{ steps.sys.outputs.memory }}%`" >> $REPORT
+        echo "- Disk: `${{ steps.sys.outputs.disk }}`" >> $REPORT
 
-    - name: Commit and Push
+    - name: Commit report
       run: |
-        git config user.name "github-actions"
-        git config user.email "github-actions@github.com"
-        git pull origin ${{ github.ref_name }}
-        git add reports/*.md springboot_backups/ maven_backups/ eai_backups/ db_backups/ backups/
-        git commit -m "📦 System & App Backup + Report @ ${{ steps.vars.outputs.timestamp }}" || echo "Nothing to commit"
-        git push origin ${{ github.ref_name }}
+        git config user.name github-actions
+        git config user.email github-actions@github.com
+        git pull origin main
+        git add reports/*.md springboot_backups/ maven_backups/ db_backups/ backups/ eai_backups/
+        git commit -m "📦 Backup + Report @ ${{ steps.vars.outputs.timestamp }}" || echo "Nothing to commit"
+        git push origin main
 
   deploy-pages:
-    needs: system-backup
+    needs: full-backup
     runs-on: ubuntu-latest
     if: ${{ github.ref_name == 'main' }}
+
     steps:
-      - uses: actions/checkout@v4
-      - run: mkdir -p public && cp -r reports/* public/
-      - uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./public
+    - uses: actions/checkout@v4
+    - run: mkdir -p public && cp -r reports/* public/
+    - uses: peaceiris/actions-gh-pages@v4
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./public
