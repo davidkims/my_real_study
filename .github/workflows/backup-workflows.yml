@@ -102,7 +102,7 @@ jobs:
         find reports -type f -mtime +2 -exec rm -v {} \;
         find eai_backups -type f -mtime +2 -exec rm -v {} \;
         find springboot_backups -type f -mtime +2 -exec rm -v {} \;
-        find maven_backups -type d -mtime +2 -exec rm -rv {} \;
+        find maven_backups -depth -type d -mtime +2 -exec rm -rv {} \;
 
     - name: Generate Markdown Report
       run: |
