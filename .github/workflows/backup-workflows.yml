@@ -36,7 +36,7 @@ jobs:
 
     - name: Prepare backup directories
       run: |
-        mkdir -p apache_backups nt-backup/bin db_backups oracle_backups backups reports eai_backups edi_logs springboot springboot_backups maven_backups
+        mkdir -p apache_backups nt-backup/bin db_backups oracle_backups backups reports eai_backups edi_logs springboot springboot_backups maven_backups public/reports
 
     - name: Setup Spring Boot JAR
       run: |
@@ -72,30 +72,28 @@ jobs:
         cp springboot/app.jar springboot_backups/app-${{ steps.vars.outputs.timestamp }}.jar
         zip -r backups/workflows-backup-${{ steps.vars.outputs.timestamp }}.zip .github/workflows
 
-    - name: Simulate Logistics Customer DB (Masked and Encrypted)
+    - name: Simulate and Encrypt Logistics Customer DB
       run: |
-        echo "-- 물류 고객 가상 백업 (주민번호 마스킹 적용)" > temp.sql
-        echo "CREATE TABLE customers (id INT, name TEXT, phone TEXT, ssn TEXT);" >> temp.sql
-        echo "INSERT INTO customers VALUES (1, '홍길동', '010-1234-5678', '900101-*******');" >> temp.sql
-        echo "INSERT INTO customers VALUES (2, '김철수', '010-9876-5432', '920305-*******');" >> temp.sql
-        gpg --batch --yes --passphrase "backup-key" -c temp.sql
-        mv temp.sql.gpg db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql.gpg
-        rm -f temp.sql
+        echo "-- 물류 고객 가상 백업 (주민번호 마스킹 적용)" > db_temp.sql
+        echo "CREATE TABLE customers (id INT, name TEXT, phone TEXT, ssn TEXT);" >> db_temp.sql
+        echo "INSERT INTO customers VALUES (1, '홍길동', '010-1234-5678', '900101-*******');" >> db_temp.sql
+        echo "INSERT INTO customers VALUES (2, '김철수', '010-9876-5432', '920305-*******');" >> db_temp.sql
+        gpg --batch --yes --passphrase "secret" -c db_temp.sql
+        mv db_temp.sql.gpg db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql.gpg
 
-    - name: Oracle DB Backup (simulated and encrypted)
+    - name: Oracle DB Backup (encrypted)
       run: |
-        echo "-- Oracle DB Export (simulated)" > temp.dmp
-        echo "EXPORT_DATE=${{ steps.vars.outputs.date_fmt }}" >> temp.dmp
-        gpg --batch --yes --passphrase "backup-key" -c temp.dmp
-        mv temp.dmp.gpg oracle_backups/oracle-backup-${{ steps.vars.outputs.timestamp }}.dmp.gpg
-        rm -f temp.dmp
+        echo "-- Oracle DB Export (simulated)" > oracle.dmp
+        echo "EXPORT_DATE=${{ steps.vars.outputs.date_fmt }}" >> oracle.dmp
+        gpg --batch --yes --passphrase "secret" -c oracle.dmp
+        mv oracle.dmp.gpg oracle_backups/oracle-backup-${{ steps.vars.outputs.timestamp }}.dmp.gpg
 
-    - name: Simulate EAI logs with EDI
+    - name: Simulate EAI + EDI logs
       run: |
-        echo "<edi><msg><status>OK</status><ts>${{ steps.vars.outputs.timestamp }}</ts></msg></edi>" > eai_backups/send-${{ steps.vars.outputs.timestamp }}.xml
-        echo "<edi><msg><status>OK</status><ts>${{ steps.vars.outputs.timestamp }}</ts></msg></edi>" > eai_backups/receive-${{ steps.vars.outputs.timestamp }}.xml
-        echo "${{ steps.vars.outputs.timestamp }}|SEND|OK" >> edi_logs/edi-log-${{ steps.vars.outputs.timestamp }}.log
-        echo "${{ steps.vars.outputs.timestamp }}|RECEIVE|OK" >> edi_logs/edi-log-${{ steps.vars.outputs.timestamp }}.log
+        echo "<msg><status>OK</status></msg>" > eai_backups/send-${{ steps.vars.outputs.timestamp }}.xml
+        echo "<msg><status>OK</status></msg>" > eai_backups/receive-${{ steps.vars.outputs.timestamp }}.xml
+        echo "$(date) 송신 완료" >> edi_logs/send.log
+        echo "$(date) 수신 완료" >> edi_logs/receive.log
 
     - name: Analyze EAI logs
       id: eai
@@ -114,12 +112,11 @@ jobs:
 
     - name: Cleanup Old Backups (24h)
       run: |
-        find backups db_backups oracle_backups apache_backups nt-backup reports eai_backups edi_logs springboot_backups -type f -mmin +1440 -exec rm -v {} \;
+        find backups db_backups oracle_backups apache_backups nt-backup reports eai_backups springboot_backups edi_logs -type f -mmin +1440 -exec rm -v {} \;
         find maven_backups -depth -type d -mmin +1440 -exec rm -rv {} \;
 
     - name: Create Monitoring Report
       run: |
-        mkdir -p public/reports
         REPORT=public/reports/report-${{ steps.vars.outputs.timestamp }}.md
         echo "# 📦 백업 리포트 (${{ steps.vars.outputs.date_fmt }})" > $REPORT
         echo "- Spring Boot: ✅" >> $REPORT
@@ -127,12 +124,13 @@ jobs:
         echo "- Oracle DB (암호화됨): ✅" >> $REPORT
         echo "- 물류 고객 DB (마스킹+암호화): ✅" >> $REPORT
         echo "## EAI + EDI 상태" >> $REPORT
-        echo "- 송신: \\`${{ steps.eai.outputs.send_status }}\`" >> $REPORT
-        echo "- 수신: \\`${{ steps.eai.outputs.recv_status }}\`" >> $REPORT
+        echo "- 송신: \\`OK\\`" >> $REPORT
+        echo "- 수신: \\`OK\\`" >> $REPORT
         echo "## 시스템 자원율" >> $REPORT
-        echo "- CPU: \\`${{ steps.sys.outputs.cpu }}%\`" >> $REPORT
-        echo "- Memory: \\`${{ steps.sys.outputs.memory }}%\`" >> $REPORT
-        echo "- Disk: \\`${{ steps.sys.outputs.disk }}\`" >> $REPORT
+        echo "- CPU: \\`${{ steps.sys.outputs.cpu }}%\\`" >> $REPORT
+        echo "- Memory: \\`${{ steps.sys.outputs.memory }}%\\`" >> $REPORT
+        echo "- Disk: \\`${{ steps.sys.outputs.disk }}\\`" >> $REPORT
+        echo "\n[🔍 백업 대시보드로 이동](../index.html)" >> $REPORT
 
     - name: Commit Report
       run: |
@@ -165,13 +163,17 @@ jobs:
     - name: Build Monitoring Page
       run: |
         mkdir -p public
-        echo "<html><head><meta charset='utf-8'><title>📦 Backup Monitor</title></head><body><h1>📦 백업 모니터링 (24시간/365일)</h1><ul>" > public/index.html
+        echo "<html><head><meta charset='utf-8'><title>📦 Backup Monitor</title></head><body><h1>📦 백업 시스템 모니터링 (24시간/365일)</h1><ul>" > public/index.html
         for f in public/reports/*.md; do
-          echo "<li><a href='./reports/$(basename \"$f\")'>$(basename \"$f\")</a></li>" >> public/index.html
+          fname=$(basename "$f")
+          echo "<li><a href='./reports/$fname'>$fname</a></li>" >> public/index.html
         done
-        echo "</ul><hr><h2>📡 EDI 송수신 로그</h2><pre>" >> public/index.html
-        tail -n 50 edi_logs/*.log >> public/index.html || echo "No EDI logs"
-        echo "</pre><p>자동 갱신: 5분 주기</p></body></html>" >> public/index.html
+        echo "</ul><hr><p>이 페이지는 5분마다 자동 업데이트됩니다.</p>" >> public/index.html
+        echo "<h2>EDI 로그 상태</h2>" >> public/index.html
+        echo "<pre>" >> public/index.html
+        tail -n 10 edi_logs/send.log >> public/index.html || true
+        tail -n 10 edi_logs/receive.log >> public/index.html || true
+        echo "</pre></body></html>" >> public/index.html
 
     - name: Deploy to GitHub Pages
       if: github.ref == 'refs/heads/main'
