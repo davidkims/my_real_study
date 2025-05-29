@@ -2,7 +2,7 @@ name: Full System Automation with Backup, Test, and Reporting
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # Every 5 minutes
+    - cron: '*/5 * * * *'  # Every 5 minutes UTC (runs globally)
   workflow_dispatch:
 
 permissions:
@@ -18,21 +18,22 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Set timestamp
+    - name: Set timestamp (KST)
       id: vars
       run: |
+        export TZ=Asia/Seoul
         echo "timestamp=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
         echo "date_fmt=$(date '+%Y-%m-%d %H:%M:%S (KST)')" >> $GITHUB_OUTPUT
 
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y apache2 unzip curl default-jdk
+        sudo apt-get install -y apache2 unzip curl default-jdk alien libaio1
 
     - name: Reset all backup directories
       run: |
-        rm -rf apache_backups nt-backup/bin db_backups backups reports eai_backups springboot springboot_backups maven_backups
-        mkdir -p apache_backups nt-backup/bin db_backups backups reports eai_backups springboot springboot_backups maven_backups
+        rm -rf apache_backups nt-backup/bin db_backups oracle_backups backups reports eai_backups springboot springboot_backups maven_backups
+        mkdir -p apache_backups nt-backup/bin db_backups oracle_backups backups reports eai_backups springboot springboot_backups maven_backups
 
     - name: Setup Apache (No Auth)
       run: |
@@ -71,10 +72,15 @@ jobs:
     - name: Backup Spring Boot
       run: cp springboot/app.jar springboot_backups/app-${{ steps.vars.outputs.timestamp }}.jar
 
-    - name: Backup workflow and DB
+    - name: Backup workflow and sample DB
       run: |
         zip -r backups/workflows-backup-${{ steps.vars.outputs.timestamp }}.zip .github/workflows
         echo "-- Sample DB Backup" > db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
+
+    - name: Oracle DB Backup (simulated)
+      run: |
+        echo "-- Oracle DB Export (simulated)" > oracle_backups/oracle-backup-${{ steps.vars.outputs.timestamp }}.dmp
+        echo "EXPORT_DATE=${{ steps.vars.outputs.date_fmt }}" >> oracle_backups/oracle-backup-${{ steps.vars.outputs.timestamp }}.dmp
 
     - name: Simulate EAI logs (송신 + 수신)
       run: |
@@ -98,7 +104,7 @@ jobs:
 
     - name: Clean backups (0-day retention)
       run: |
-        find backups db_backups apache_backups nt-backup reports eai_backups springboot_backups -type f -exec rm -v {} \;
+        find backups db_backups oracle_backups apache_backups nt-backup reports eai_backups springboot_backups -type f -exec rm -v {} \;
         find maven_backups -depth -type d -exec rm -rv {} \;
 
     - name: Generate Markdown Report
@@ -107,6 +113,7 @@ jobs:
         echo "# \U0001F4CB Backup Report (${{ steps.vars.outputs.date_fmt }})" > $REPORT
         echo "- Spring Boot: ✅" >> $REPORT
         echo "- Maven: ✅" >> $REPORT
+        echo "- Oracle DB: ✅" >> $REPORT
         echo "## EAI 상태" >> $REPORT
         echo "- 송신: \`${{ steps.eai.outputs.send_status }}\`" >> $REPORT
         echo "- 수신: \`${{ steps.eai.outputs.recv_status }}\`" >> $REPORT
@@ -120,7 +127,11 @@ jobs:
         git config user.name github-actions
         git config user.email github-actions@github.com
         git pull origin main
-        git add reports/*.md springboot_backups/ maven_backups/ db_backups/ backups/ eai_backups/
+
+        for path in reports/*.md springboot_backups maven_backups db_backups oracle_backups backups eai_backups; do
+          [ -e "$path" ] && git add "$path"
+        done
+
         git commit -m "\U0001F4E6 Backup + Report @ ${{ steps.vars.outputs.timestamp }}" || echo "Nothing to commit"
         git push origin main
 
