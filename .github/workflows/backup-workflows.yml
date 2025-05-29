@@ -32,11 +32,11 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y apache2 unzip curl default-jdk libaio-dev gnupg expect
+        sudo apt-get install -y apache2 unzip curl default-jdk libaio-dev gnupg
 
     - name: Prepare backup directories
       run: |
-        mkdir -p apache_backups nt-backup/bin db_backups oracle_backups teradata_backups card_backups backups reports eai_backups edi_logs springboot springboot_backups maven_backups public/reports
+        mkdir -p apache_backups nt-backup/bin db_backups oracle_backups teradata_backups backups reports eai_backups edi_logs springboot springboot_backups maven_backups card_backups public/reports
 
     - name: Setup Spring Boot JAR
       run: |
