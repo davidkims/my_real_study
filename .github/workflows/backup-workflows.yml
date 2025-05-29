@@ -2,7 +2,7 @@ name: Full System Automation with Backup, Test, and Reporting
 
 on:
   schedule:
-    - cron: '0 23 * * *'
+    - cron: '*/5 * * * *'  # Every 5 minutes
   workflow_dispatch:
 
 permissions:
@@ -29,14 +29,15 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y apache2 unzip curl default-jdk
 
+    - name: Reset all backup directories
+      run: |
+        rm -rf apache_backups nt-backup/bin db_backups backups reports eai_backups springboot springboot_backups maven_backups
+        mkdir -p apache_backups nt-backup/bin db_backups backups reports eai_backups springboot springboot_backups maven_backups
+
     - name: Setup Apache (No Auth)
       run: |
         sudo systemctl enable apache2
         sudo systemctl start apache2
-
-    - name: Create folders
-      run: |
-        mkdir -p apache_backups nt-backup/bin db_backups backups reports eai_backups springboot springboot_backups maven_backups
 
     - name: Setup Spring Boot JAR
       run: |
@@ -75,16 +76,16 @@ jobs:
         zip -r backups/workflows-backup-${{ steps.vars.outputs.timestamp }}.zip .github/workflows
         echo "-- Sample DB Backup" > db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
 
-    - name: Simulate EAI logs
+    - name: Simulate EAI logs (송신 + 수신)
       run: |
         echo "<msg><status>OK</status></msg>" > eai_backups/send-${{ steps.vars.outputs.timestamp }}.xml
-        echo "<msg><status>FAIL</status></msg>" > eai_backups/receive-${{ steps.vars.outputs.timestamp }}.xml
+        echo "<msg><status>OK</status></msg>" > eai_backups/receive-${{ steps.vars.outputs.timestamp }}.xml
 
     - name: Analyze EAI logs
       id: eai
       run: |
-        send_status=$(grep -oP '<status>\K[^<]+' eai_backups/send-${{ steps.vars.outputs.timestamp }}.xml)
-        recv_status=$(grep -oP '<status>\K[^<]+' eai_backups/receive-${{ steps.vars.outputs.timestamp }}.xml)
+        send_status=$(grep -oP '<status>\\K[^<]+' eai_backups/send-${{ steps.vars.outputs.timestamp }}.xml)
+        recv_status=$(grep -oP '<status>\\K[^<]+' eai_backups/receive-${{ steps.vars.outputs.timestamp }}.xml)
         echo "send_status=$send_status" >> $GITHUB_OUTPUT
         echo "recv_status=$recv_status" >> $GITHUB_OUTPUT
 
@@ -95,10 +96,10 @@ jobs:
         echo "memory=$(free | awk '/Mem/ {printf(\"%.2f\", $3/$2 * 100)}')" >> $GITHUB_OUTPUT
         echo "disk=$(df -h . | awk 'NR==2 {print $5}')" >> $GITHUB_OUTPUT
 
-    - name: Clean backups older than 2 days
+    - name: Clean backups (0-day retention)
       run: |
-        find backups db_backups apache_backups nt-backup reports eai_backups springboot_backups -type f -mtime +2 -exec rm -v {} \;
-        find maven_backups -depth -type d -mtime +2 -exec rm -rv {} \;
+        find backups db_backups apache_backups nt-backup reports eai_backups springboot_backups -type f -exec rm -v {} \;
+        find maven_backups -depth -type d -exec rm -rv {} \;
 
     - name: Generate Markdown Report
       run: |
