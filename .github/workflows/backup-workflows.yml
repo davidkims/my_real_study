@@ -36,7 +36,7 @@ jobs:
 
     - name: Prepare backup directories
       run: |
-        mkdir -p apache_backups nt-backup/bin db_backups oracle_backups backups reports eai_backups edi_logs springboot springboot_backups maven_backups public/reports
+        mkdir -p apache_backups nt-backup/bin db_backups oracle_backups teradata_backups backups reports eai_backups edi_logs springboot springboot_backups maven_backups public/reports
 
     - name: Setup Spring Boot JAR
       run: |
@@ -88,6 +88,14 @@ jobs:
         gpg --batch --yes --passphrase "secret" -c oracle.dmp
         mv oracle.dmp.gpg oracle_backups/oracle-backup-${{ steps.vars.outputs.timestamp }}.dmp.gpg
 
+    - name: Teradata Backup (simulated encrypted)
+      run: |
+        echo "-- Teradata customer data export (masked)" > teradata.dmp
+        echo "EXPORT_DATE=${{ steps.vars.outputs.date_fmt }}" >> teradata.dmp
+        echo "SSN=801010-*******" >> teradata.dmp
+        gpg --batch --yes --passphrase "secret" -c teradata.dmp
+        mv teradata.dmp.gpg teradata_backups/teradata-backup-${{ steps.vars.outputs.timestamp }}.dmp.gpg
+
     - name: Simulate EAI + EDI logs
       run: |
         echo "<msg><status>OK</status></msg>" > eai_backups/send-${{ steps.vars.outputs.timestamp }}.xml
@@ -112,7 +120,7 @@ jobs:
 
     - name: Cleanup Old Backups (24h)
       run: |
-        find backups db_backups oracle_backups apache_backups nt-backup reports eai_backups springboot_backups edi_logs -type f -mmin +1440 -exec rm -v {} \;
+        find backups db_backups oracle_backups apache_backups nt-backup reports eai_backups springboot_backups edi_logs teradata_backups -type f -mmin +1440 -exec rm -v {} \;
         find maven_backups -depth -type d -mmin +1440 -exec rm -rv {} \;
 
     - name: Create Monitoring Report
@@ -122,14 +130,15 @@ jobs:
         echo "- Spring Boot: ✅" >> $REPORT
         echo "- Maven: ✅" >> $REPORT
         echo "- Oracle DB (암호화됨): ✅" >> $REPORT
+        echo "- Teradata DB (암호화됨): ✅" >> $REPORT
         echo "- 물류 고객 DB (마스킹+암호화): ✅" >> $REPORT
         echo "## EAI + EDI 상태" >> $REPORT
-        echo "- 송신: \\`OK\\`" >> $REPORT
-        echo "- 수신: \\`OK\\`" >> $REPORT
+        echo "- 송신: \\\`OK\\\`" >> $REPORT
+        echo "- 수신: \\\`OK\\\`" >> $REPORT
         echo "## 시스템 자원율" >> $REPORT
-        echo "- CPU: \\`${{ steps.sys.outputs.cpu }}%\\`" >> $REPORT
-        echo "- Memory: \\`${{ steps.sys.outputs.memory }}%\\`" >> $REPORT
-        echo "- Disk: \\`${{ steps.sys.outputs.disk }}\\`" >> $REPORT
+        echo "- CPU: \\\`${{ steps.sys.outputs.cpu }}%\\\`" >> $REPORT
+        echo "- Memory: \\\`${{ steps.sys.outputs.memory }}%\\\`" >> $REPORT
+        echo "- Disk: \\\`${{ steps.sys.outputs.disk }}\\\`" >> $REPORT
         echo "\n[🔍 백업 대시보드로 이동](../index.html)" >> $REPORT
 
     - name: Commit Report
@@ -137,7 +146,7 @@ jobs:
         git config user.name github-actions
         git config user.email github-actions@github.com
         git pull origin main
-        git add public/reports/*.md springboot_backups maven_backups db_backups oracle_backups backups eai_backups edi_logs
+        git add public/reports/*.md springboot_backups maven_backups db_backups oracle_backups teradata_backups backups eai_backups edi_logs
         git commit -m "📦 Backup + Report @ ${{ steps.vars.outputs.timestamp }}" || echo "Nothing to commit"
         git push origin main
 
