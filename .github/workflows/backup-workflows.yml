@@ -84,8 +84,8 @@ jobs:
     - name: Analyze EAI logs
       id: eai
       run: |
-        send_status=$(grep -oP '<status>\\K[^<]+' eai_backups/send-${{ steps.vars.outputs.timestamp }}.xml)
-        recv_status=$(grep -oP '<status>\\K[^<]+' eai_backups/receive-${{ steps.vars.outputs.timestamp }}.xml)
+        send_status=$(grep -oP '<status>\K[^<]+' eai_backups/send-${{ steps.vars.outputs.timestamp }}.xml)
+        recv_status=$(grep -oP '<status>\K[^<]+' eai_backups/receive-${{ steps.vars.outputs.timestamp }}.xml)
         echo "send_status=$send_status" >> $GITHUB_OUTPUT
         echo "recv_status=$recv_status" >> $GITHUB_OUTPUT
 
