@@ -90,22 +90,17 @@ jobs:
 
     - name: Teradata DB Backup (encrypted)
       run: |
-        echo "-- Teradata Backup for audit data" > teradata.dmp
-        echo "EXPORT_DATE=${{ steps.vars.outputs.date_fmt }}" >> teradata.dmp
+        echo "-- Teradata 상주배치 백업 (가상 고객 정보)" > teradata.dmp
+        echo "CUSTOMER_ID,NAME,CARD\n1,홍길동,1234-****-****-5678\n2,김철수,4321-****-****-9876" >> teradata.dmp
         gpg --batch --yes --passphrase "secret" -c teradata.dmp
-        mv teradata.dmp.gpg teradata_backups/teradata-backup-${{ steps.vars.outputs.timestamp }}.dmp.gpg
+        mv teradata.dmp.gpg teradata_backups/teradata-${{ steps.vars.outputs.timestamp }}.dmp.gpg
 
-    - name: Simulate Checkcard Transaction and Backup if occurred
+    - name: Checkcard Transaction Backup (if any)
       run: |
-        echo "-- Checking for recent checkcard transaction..."
-        echo "TRANSACTION_FOUND=true" > checkcard.flag
-        if grep -q "true" checkcard.flag; then
-          echo "-- Simulate Checkcard DB with masking" > checkcard_temp.sql
-          echo "CREATE TABLE transactions (id INT, customer_id TEXT, amount TEXT, card_no TEXT);" >> checkcard_temp.sql
-          echo "INSERT INTO transactions VALUES (1, '홍길동', '10000', '5399-****-****-1234');" >> checkcard_temp.sql
-          gpg --batch --yes --passphrase "secret" -c checkcard_temp.sql
-          mv checkcard_temp.sql.gpg checkcard_backups/checkcard-backup-${{ steps.vars.outputs.timestamp }}.sql.gpg
-        fi
+        echo "-- 체크카드 거래 발생 시 백업 (마스킹+암호화)" > checkcard.sql
+        echo "INSERT INTO transactions VALUES (1, '홍길동', '1234-****-****-5678', '2025-05-29', 45000);" >> checkcard.sql
+        gpg --batch --yes --passphrase "secret" -c checkcard.sql
+        mv checkcard.sql.gpg checkcard_backups/checkcard-${{ steps.vars.outputs.timestamp }}.sql.gpg
 
     - name: Simulate EAI + EDI logs
       run: |
@@ -142,17 +137,16 @@ jobs:
         echo "- Maven: ✅" >> $REPORT
         echo "- Oracle DB (암호화됨): ✅" >> $REPORT
         echo "- 물류 고객 DB (마스킹+암호화): ✅" >> $REPORT
-        echo "- 테라데이타 고객 DB (암호화): ✅" >> $REPORT
-        echo "- 체크카드 시스템 DB (마스킹+암호화): ✅ (거래 발생 시 백업됨)" >> $REPORT
+        echo "- 테라데이타 백업 (암호화됨): ✅" >> $REPORT
+        echo "- 체크카드 거래 (마스킹+암호화): ✅" >> $REPORT
         echo "## EAI + EDI 상태" >> $REPORT
-        echo "- 송신: OK" >> $REPORT
-        echo "- 수신: OK" >> $REPORT
+        echo "- 송신: \\`${{ steps.eai.outputs.send_status }}\\`" >> $REPORT
+        echo "- 수신: \\`${{ steps.eai.outputs.recv_status }}\\`" >> $REPORT
         echo "## 시스템 자원율" >> $REPORT
-        echo "- CPU: ${{ steps.sys.outputs.cpu }}%" >> $REPORT
-        echo "- Memory: ${{ steps.sys.outputs.memory }}%" >> $REPORT
-        echo "- Disk: ${{ steps.sys.outputs.disk }}" >> $REPORT
-        echo "" >> $REPORT
-        echo "[🔍 백업 대시보드로 이동](../index.html)" >> $REPORT
+        echo "- CPU: \\`${{ steps.sys.outputs.cpu }}%\\`" >> $REPORT
+        echo "- Memory: \\`${{ steps.sys.outputs.memory }}%\\`" >> $REPORT
+        echo "- Disk: \\`${{ steps.sys.outputs.disk }}\\`" >> $REPORT
+        echo "\n[🔍 백업 대시보드로 이동](../index.html)" >> $REPORT
 
     - name: Commit Report
       run: |
@@ -203,3 +197,7 @@ jobs:
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         publish_dir: ./public
+        allow_empty_commit: true
+        publish_branch: gh-pages
+        user_name: github-actions
+        user_email: github-actions@github.com
