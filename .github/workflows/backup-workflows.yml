@@ -32,7 +32,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y apache2 unzip curl default-jdk libaio-dev gnupg
+        sudo apt-get install -y apache2 unzip curl default-jdk libaio-dev gnupg expect
 
     - name: Prepare backup directories
       run: |
@@ -88,13 +88,14 @@ jobs:
         gpg --batch --yes --passphrase "secret" -c oracle.dmp
         mv oracle.dmp.gpg oracle_backups/oracle-backup-${{ steps.vars.outputs.timestamp }}.dmp.gpg
 
-    - name: Teradata Backup (simulated encrypted)
+    - name: Teradata Bank Batch (simulated)
       run: |
-        echo "-- Teradata customer data export (masked)" > teradata.dmp
-        echo "EXPORT_DATE=${{ steps.vars.outputs.date_fmt }}" >> teradata.dmp
-        echo "SSN=801010-*******" >> teradata.dmp
-        gpg --batch --yes --passphrase "secret" -c teradata.dmp
-        mv teradata.dmp.gpg teradata_backups/teradata-backup-${{ steps.vars.outputs.timestamp }}.dmp.gpg
+        echo "-- Teradata 상주배치 (은행 고객정보 마스킹)" > td_batch.sql
+        echo "CREATE TABLE bank_customers (id INT, name TEXT, ssn TEXT);" >> td_batch.sql
+        echo "INSERT INTO bank_customers VALUES (1, '이영희', '880101-*******');" >> td_batch.sql
+        echo "INSERT INTO bank_customers VALUES (2, '박민수', '910205-*******');" >> td_batch.sql
+        gpg --batch --yes --passphrase "secret" -c td_batch.sql
+        mv td_batch.sql.gpg teradata_backups/td-backup-${{ steps.vars.outputs.timestamp }}.sql.gpg
 
     - name: Simulate EAI + EDI logs
       run: |
@@ -120,7 +121,7 @@ jobs:
 
     - name: Cleanup Old Backups (24h)
       run: |
-        find backups db_backups oracle_backups apache_backups nt-backup reports eai_backups springboot_backups edi_logs teradata_backups -type f -mmin +1440 -exec rm -v {} \;
+        find backups db_backups oracle_backups teradata_backups apache_backups nt-backup reports eai_backups springboot_backups edi_logs -type f -mmin +1440 -exec rm -v {} \;
         find maven_backups -depth -type d -mmin +1440 -exec rm -rv {} \;
 
     - name: Create Monitoring Report
@@ -130,15 +131,15 @@ jobs:
         echo "- Spring Boot: ✅" >> $REPORT
         echo "- Maven: ✅" >> $REPORT
         echo "- Oracle DB (암호화됨): ✅" >> $REPORT
-        echo "- Teradata DB (암호화됨): ✅" >> $REPORT
         echo "- 물류 고객 DB (마스킹+암호화): ✅" >> $REPORT
+        echo "- Teradata 은행 상주배치 (마스킹+암호화): ✅" >> $REPORT
         echo "## EAI + EDI 상태" >> $REPORT
-        echo "- 송신: \\\`OK\\\`" >> $REPORT
-        echo "- 수신: \\\`OK\\\`" >> $REPORT
+        echo "- 송신: \\\\`OK\\\\`" >> $REPORT
+        echo "- 수신: \\\\`OK\\\\`" >> $REPORT
         echo "## 시스템 자원율" >> $REPORT
-        echo "- CPU: \\\`${{ steps.sys.outputs.cpu }}%\\\`" >> $REPORT
-        echo "- Memory: \\\`${{ steps.sys.outputs.memory }}%\\\`" >> $REPORT
-        echo "- Disk: \\\`${{ steps.sys.outputs.disk }}\\\`" >> $REPORT
+        echo "- CPU: \\\\`${{ steps.sys.outputs.cpu }}%\\\\`" >> $REPORT
+        echo "- Memory: \\\\`${{ steps.sys.outputs.memory }}%\\\\`" >> $REPORT
+        echo "- Disk: \\\\`${{ steps.sys.outputs.disk }}\\\\`" >> $REPORT
         echo "\n[🔍 백업 대시보드로 이동](../index.html)" >> $REPORT
 
     - name: Commit Report
