@@ -1,4 +1,4 @@
-ame: Full System Automation with Backup, Test, and Reporting
+name: Full System Automation with Backup, Test, and Reporting
 
 on:
   push:
