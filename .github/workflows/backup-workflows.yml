@@ -32,7 +32,6 @@ jobs:
 
     - name: Reset all backup directories
       run: |
-        rm -rf apache_backups nt-backup/bin db_backups oracle_backups backups reports eai_backups springboot springboot_backups maven_backups
         mkdir -p apache_backups nt-backup/bin db_backups oracle_backups backups reports eai_backups springboot springboot_backups maven_backups
 
     - name: Setup Apache (No Auth)
@@ -102,10 +101,10 @@ jobs:
         echo "memory=$(free | awk '/Mem/ {printf(\"%.2f\", $3/$2 * 100)}')" >> $GITHUB_OUTPUT
         echo "disk=$(df -h . | awk 'NR==2 {print $5}')" >> $GITHUB_OUTPUT
 
-    - name: Clean backups (0-day retention)
+    - name: Clean backups older than 24 hours
       run: |
-        find backups db_backups oracle_backups apache_backups nt-backup reports eai_backups springboot_backups -type f -exec rm -v {} \;
-        find maven_backups -depth -type d -exec rm -rv {} \;
+        find backups db_backups oracle_backups apache_backups nt-backup reports eai_backups springboot_backups -type f -mmin +1440 -exec rm -v {} \;
+        find maven_backups -depth -type d -mmin +1440 -exec rm -rv {} \;
 
     - name: Generate Markdown Report
       run: |
@@ -142,7 +141,15 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - run: mkdir -p public && cp -r reports/* public/
+    - run: |
+        mkdir -p public
+        cp -r reports/* public/
+        echo "<html><head><meta charset='utf-8'><title>Backup Monitoring</title></head><body><h1>📦 Backup Monitoring (24시간 365일)</h1><ul>" > public/index.html
+        for f in public/*.md; do
+          echo "<li><a href='$(basename "$f")'>$(basename "$f")</a></li>" >> public/index.html
+        done
+        echo "</ul></body></html>" >> public/index.html
+
     - uses: peaceiris/actions-gh-pages@v4
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
