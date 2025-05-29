@@ -1,5 +1,0 @@
-cmake_minimum_required(VERSION 3.10)
-project(HelloWorld)
-enable_testing()
-add_executable(hello main.cpp)
-add_test(NAME HelloTest COMMAND hello)
