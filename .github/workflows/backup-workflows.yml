@@ -160,9 +160,18 @@ jobs:
         cp -r reports/* public/
         echo "<html><head><meta charset='utf-8'><title>📦 Backup Monitor</title></head><body><h1>📦 백업 시스템 모니터링 (24시간/365일)</h1><ul>" > public/index.html
         for f in public/*.md; do
-          echo "<li><a href='$(basename "$f")'>$(basename "$f")</a></li>" >> public/index.html
+          echo "<li><a href='$(basename \"$f\")'>$(basename \"$f\")</a></li>" >> public/index.html
         done
-        echo "</ul><hr><p>이 페이지는 5분마다 자동 업데이트됩니다.</p></body></html>" >> public/index.html
+        echo "</ul><hr><p>이 페이지는 5분마다 자동 업데이트되며, 아래 포트폴리오 사이트들도 확인하세요:</p><ul>" >> public/index.html
+        echo "<li><a href='./gatsby'>🌐 Gatsby</a></li>" >> public/index.html
+        echo "<li><a href='./next'>⚛️ Next.js</a></li>" >> public/index.html
+        echo "<li><a href='./vue'>🖼 Vue/Nuxt</a></li>" >> public/index.html
+        echo "<li><a href='./docusaurus'>📘 Docusaurus</a></li>" >> public/index.html
+        echo "<li><a href='./mdbook'>📚 mdBook</a></li>" >> public/index.html
+        echo "<li><a href='./flutter'>📱 Flutter Web</a></li>" >> public/index.html
+        echo "<li><a href='./elm'>🟦 Elm</a></li>" >> public/index.html
+        echo "<li><a href='./swift'>🍎 Swift</a></li>" >> public/index.html
+        echo "</ul></body></html>" >> public/index.html
 
     - name: Deploy to GitHub Pages
       if: github.ref == 'refs/heads/main'
