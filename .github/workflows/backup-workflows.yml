@@ -28,7 +28,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y apache2 unzip curl default-jdk alien libaio1
+        sudo apt-get install -y apache2 unzip curl default-jdk libaio-dev
 
     - name: Reset all backup directories
       run: |
