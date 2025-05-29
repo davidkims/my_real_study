@@ -36,7 +36,7 @@ jobs:
 
     - name: Prepare backup directories
       run: |
-        mkdir -p apache_backups nt-backup/bin db_backups oracle_backups teradata_backups checkcard_backups backups reports eai_backups edi_logs springboot springboot_backups maven_backups public/reports
+        mkdir -p apache_backups nt-backup/bin db_backups oracle_backups backups reports eai_backups edi_logs springboot springboot_backups maven_backups checkcard_backups teradata_backups public/reports
 
     - name: Setup Spring Boot JAR
       run: |
@@ -88,17 +88,18 @@ jobs:
         gpg --batch --yes --passphrase "secret" -c oracle.dmp
         mv oracle.dmp.gpg oracle_backups/oracle-backup-${{ steps.vars.outputs.timestamp }}.dmp.gpg
 
-    - name: Teradata DB Backup (encrypted)
+    - name: Teradata DB Backup (simulated)
       run: |
-        echo "-- Teradata 상주배치 백업 (가상 고객 정보)" > teradata.dmp
-        echo "CUSTOMER_ID,NAME,CARD\n1,홍길동,1234-****-****-5678\n2,김철수,4321-****-****-9876" >> teradata.dmp
+        echo "-- Teradata Export" > teradata.dmp
+        echo "EXPORT_TIME=${{ steps.vars.outputs.date_fmt }}" >> teradata.dmp
         gpg --batch --yes --passphrase "secret" -c teradata.dmp
         mv teradata.dmp.gpg teradata_backups/teradata-${{ steps.vars.outputs.timestamp }}.dmp.gpg
 
-    - name: Checkcard Transaction Backup (if any)
+    - name: Checkcard Transaction Backup (conditional simulated)
       run: |
-        echo "-- 체크카드 거래 발생 시 백업 (마스킹+암호화)" > checkcard.sql
-        echo "INSERT INTO transactions VALUES (1, '홍길동', '1234-****-****-5678', '2025-05-29', 45000);" >> checkcard.sql
+        echo "-- 체크카드 거래 발생시 백업" > checkcard.sql
+        echo "CREATE TABLE card_txn (cust_id INT, card_number TEXT, amount INT, masked_card TEXT);" >> checkcard.sql
+        echo "INSERT INTO card_txn VALUES (1, '1234-5678-9012-3456', 15000, '1234-****-****-3456');" >> checkcard.sql
         gpg --batch --yes --passphrase "secret" -c checkcard.sql
         mv checkcard.sql.gpg checkcard_backups/checkcard-${{ steps.vars.outputs.timestamp }}.sql.gpg
 
@@ -126,7 +127,7 @@ jobs:
 
     - name: Cleanup Old Backups (24h)
       run: |
-        find backups db_backups oracle_backups teradata_backups checkcard_backups apache_backups nt-backup reports eai_backups springboot_backups edi_logs -type f -mmin +1440 -exec rm -v {} \;
+        find backups db_backups oracle_backups apache_backups nt-backup reports eai_backups springboot_backups edi_logs checkcard_backups teradata_backups -type f -mmin +1440 -exec rm -v {} \;
         find maven_backups -depth -type d -mmin +1440 -exec rm -rv {} \;
 
     - name: Create Monitoring Report
@@ -137,8 +138,8 @@ jobs:
         echo "- Maven: ✅" >> $REPORT
         echo "- Oracle DB (암호화됨): ✅" >> $REPORT
         echo "- 물류 고객 DB (마스킹+암호화): ✅" >> $REPORT
-        echo "- 테라데이타 백업 (암호화됨): ✅" >> $REPORT
-        echo "- 체크카드 거래 (마스킹+암호화): ✅" >> $REPORT
+        echo "- 체크카드 거래 DB (마스킹+암호화): ✅" >> $REPORT
+        echo "- 테라데이터 백업: ✅" >> $REPORT
         echo "## EAI + EDI 상태" >> $REPORT
         echo "- 송신: \\`${{ steps.eai.outputs.send_status }}\\`" >> $REPORT
         echo "- 수신: \\`${{ steps.eai.outputs.recv_status }}\\`" >> $REPORT
@@ -148,14 +149,17 @@ jobs:
         echo "- Disk: \\`${{ steps.sys.outputs.disk }}\\`" >> $REPORT
         echo "\n[🔍 백업 대시보드로 이동](../index.html)" >> $REPORT
 
-    - name: Commit Report
+    - name: Commit Report and Create GitHub Release
       run: |
         git config user.name github-actions
         git config user.email github-actions@github.com
         git pull origin main
-        git add public/reports/*.md springboot_backups maven_backups db_backups oracle_backups teradata_backups checkcard_backups backups eai_backups edi_logs
+        git add public/reports/*.md springboot_backups maven_backups db_backups oracle_backups backups eai_backups edi_logs checkcard_backups teradata_backups
         git commit -m "📦 Backup + Report @ ${{ steps.vars.outputs.timestamp }}" || echo "Nothing to commit"
         git push origin main
+        git tag backup-${{ steps.vars.outputs.timestamp }}
+        git push origin backup-${{ steps.vars.outputs.timestamp }}
+        gh release create backup-${{ steps.vars.outputs.timestamp }} --title "백업 릴리스 ${{ steps.vars.outputs.timestamp }}" --notes "자동 생성된 전체 시스템 백업 보고서"
 
   deploy:
     needs: full-backup
@@ -185,8 +189,7 @@ jobs:
           echo "<li><a href='./reports/$fname'>$fname</a></li>" >> public/index.html
         done
         echo "</ul><hr><p>이 페이지는 5분마다 자동 업데이트됩니다.</p>" >> public/index.html
-        echo "<h2>EDI 로그 상태</h2>" >> public/index.html
-        echo "<pre>" >> public/index.html
+        echo "<h2>EDI 로그 상태</h2><pre>" >> public/index.html
         tail -n 10 edi_logs/send.log >> public/index.html || true
         tail -n 10 edi_logs/receive.log >> public/index.html || true
         echo "</pre></body></html>" >> public/index.html
@@ -197,7 +200,3 @@ jobs:
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         publish_dir: ./public
-        allow_empty_commit: true
-        publish_branch: gh-pages
-        user_name: github-actions
-        user_email: github-actions@github.com
