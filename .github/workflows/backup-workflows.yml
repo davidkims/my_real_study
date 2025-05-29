@@ -71,8 +71,18 @@ jobs:
       run: |
         cp springboot/app.jar springboot_backups/app-${{ steps.vars.outputs.timestamp }}.jar
         zip -r backups/workflows-backup-${{ steps.vars.outputs.timestamp }}.zip .github/workflows
-        echo "-- Sample DB Backup" > db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
+
+    - name: Simulate Logistics Customer DB (Masked)
+      run: |
+        echo "-- 물류 고객 가상 백업 (주민번호 마스킹 적용)" > db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
+        echo "CREATE TABLE customers (id INT, name TEXT, phone TEXT, ssn TEXT);" >> db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
+        echo "INSERT INTO customers VALUES (1, '홍길동', '010-1234-5678', '900101-*******');" >> db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
+        echo "INSERT INTO customers VALUES (2, '김철수', '010-9876-5432', '920305-*******');" >> db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql
+
+    - name: Oracle DB Backup (simulated)
+      run: |
         echo "-- Oracle DB Export (simulated)" > oracle_backups/oracle-backup-${{ steps.vars.outputs.timestamp }}.dmp
+        echo "EXPORT_DATE=${{ steps.vars.outputs.date_fmt }}" >> oracle_backups/oracle-backup-${{ steps.vars.outputs.timestamp }}.dmp
 
     - name: Simulate EAI logs
       run: |
@@ -85,3 +95,78 @@ jobs:
         send_status=$(grep -oP '<status>\K[^<]+' eai_backups/send-${{ steps.vars.outputs.timestamp }}.xml)
         recv_status=$(grep -oP '<status>\K[^<]+' eai_backups/receive-${{ steps.vars.outputs.timestamp }}.xml)
         echo "send_status=$send_status" >> $GITHUB_OUTPUT
+        echo "recv_status=$recv_status" >> $GITHUB_OUTPUT
+
+    - name: Resource Usage
+      id: sys
+      run: |
+        echo "cpu=$(top -bn1 | grep 'Cpu(s)' | awk '{print $2 + $4}')" >> $GITHUB_OUTPUT
+        echo "memory=$(free | awk '/Mem/ {printf(\"%.2f\", $3/$2 * 100)}')" >> $GITHUB_OUTPUT
+        echo "disk=$(df -h . | awk 'NR==2 {print $5}')" >> $GITHUB_OUTPUT
+
+    - name: Cleanup Old Backups (24h)
+      run: |
+        find backups db_backups oracle_backups apache_backups nt-backup reports eai_backups springboot_backups -type f -mmin +1440 -exec rm -v {} \;
+        find maven_backups -depth -type d -mmin +1440 -exec rm -rv {} \;
+
+    - name: Create Monitoring Report
+      run: |
+        REPORT=reports/report-${{ steps.vars.outputs.timestamp }}.md
+        echo "# 📦 백업 리포트 (${{ steps.vars.outputs.date_fmt }})" > $REPORT
+        echo "- Spring Boot: ✅" >> $REPORT
+        echo "- Maven: ✅" >> $REPORT
+        echo "- Oracle DB: ✅" >> $REPORT
+        echo "- 물류 고객 DB: ✅ (주민번호 마스킹됨)" >> $REPORT
+        echo "## EAI 상태" >> $REPORT
+        echo "- 송신: \`${{ steps.eai.outputs.send_status }}\`" >> $REPORT
+        echo "- 수신: \`${{ steps.eai.outputs.recv_status }}\`" >> $REPORT
+        echo "## 시스템 자원율" >> $REPORT
+        echo "- CPU: \`${{ steps.sys.outputs.cpu }}%\`" >> $REPORT
+        echo "- Memory: \`${{ steps.sys.outputs.memory }}%\`" >> $REPORT
+        echo "- Disk: \`${{ steps.sys.outputs.disk }}\`" >> $REPORT
+        echo "\n[🔍 실시간 모니터링 보기](./index.html)" >> $REPORT
+
+    - name: Commit Report
+      run: |
+        git config user.name github-actions
+        git config user.email github-actions@github.com
+        git pull origin main
+        git add reports/*.md springboot_backups maven_backups db_backups oracle_backups backups eai_backups
+        git commit -m "📦 Backup + Report @ ${{ steps.vars.outputs.timestamp }}" || echo "Nothing to commit"
+        git push origin main
+
+  deploy:
+    needs: full-backup
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
+        fetch-depth: 0
+
+    - name: Setup Hugo
+      uses: peaceiris/actions-hugo@v2
+      with:
+        hugo-version: '0.110.0'
+
+    - name: Build Monitoring Page
+      run: |
+        mkdir -p public
+        cp -r reports/* public/
+        echo "<html><head><meta charset='utf-8'><title>📦 Backup Monitor</title></head><body><h1>📦 백업 시스템 모니터링 (24시간/365일)</h1><ul>" > public/index.html
+        for f in public/*.md; do
+          echo "<li><a href='$(basename "$f")'>$(basename "$f")</a></li>" >> public/index.html
+        done
+        echo "</ul><hr><p>이 페이지는 5분마다 자동 업데이트됩니다.</p></body></html>" >> public/index.html
+
+    - name: Deploy to GitHub Pages
+      if: github.ref == 'refs/heads/main'
+      uses: peaceiris/actions-gh-pages@v4
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./public
