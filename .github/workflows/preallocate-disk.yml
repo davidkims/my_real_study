@@ -1,5 +1,5 @@
 ---
-name: 워크플로우 오류 스캔 및 실패 항목 자동 재실행
+name: 워크플로우 오류 스캔 및 재실행 시뮬레이션
 
 on:
   workflow_dispatch:
@@ -8,59 +8,62 @@ permissions:
   contents: write
   actions: write
 
+env:
+  MAX_SCAN: 100000
+
 jobs:
-  scan-and-retry-failed-workflows:
+  scan-and-retrigger:
     runs-on: ubuntu-latest
 
     steps:
       - name: 📦 저장소 체크아웃
         uses: actions/checkout@v4
 
-      - name: 📁 logs 디렉토리 준비
-        run: mkdir -p logs
-
-      - name: 🔍 워크플로우 YAML 문법 검사 및 실패 항목 추출
+      - name: 📁 logs 디렉토리 및 키 생성
         run: |
-          echo "⏳ YAML 검사 시작 (.github/workflows/*.yml)"
-          find .github/workflows -name "*.yml" | head -n 100000 | while read FILE; do
+          mkdir -p logs
+          echo "암호화키-$(date +%s)" > logs/aes.key
+          echo "AES 암호화 키 생성 완료"
+
+      - name: 🔍 워크플로우 YAML 문법 검사 및 오류 파일 추출
+        run: |
+          echo "⏳ YAML 검사 시작..."
+          > logs/failed_workflows.txt
+          find .github/workflows -name "*.yml" | head -n $MAX_SCAN | while read FILE; do
             yamllint "$FILE" || echo "$FILE" >> logs/failed_workflows.txt
           done
-          echo "📄 오류 발생한 파일:"
+          echo "📄 실패 파일 목록:"
           cat logs/failed_workflows.txt || echo "✅ 오류 없음"
 
-      - name: 🛑 오류 발생한 워크플로우 명단 존재 여부 확인
-        id: has-failed
+      - name: 🔒 실패 항목 AES256으로 암호화
         run: |
           if [ -s logs/failed_workflows.txt ]; then
-            echo "has_failed=true" >> $GITHUB_OUTPUT
+            openssl enc -aes-256-cbc -salt -pbkdf2 \
+              -in logs/failed_workflows.txt \
+              -out logs/failed_workflows.txt.enc \
+              -pass file:logs/aes.key
+            rm logs/failed_workflows.txt
+            echo "✅ 암호화 완료: logs/failed_workflows.txt.enc"
           else
-            echo "has_failed=false" >> $GITHUB_OUTPUT
+            echo "❎ 암호화할 실패 항목 없음"
           fi
 
-      - name: 🔐 GitHub CLI 인증
-        if: steps.has-failed.outputs.has_failed == 'true'
+      - name: 🔁 재실행 시뮬레이션용 더미 커밋 (옵션)
+        if: ${{ hashFiles('logs/failed_workflows.txt.enc') != '' }}
         run: |
-          echo "${{ secrets.GH_ADMIN_TOKEN }}" | gh auth login --with-token
-          gh auth status
+          echo "// dummy change for retrigger $(date)" >> .github/workflows/.retrigger.yml
+          git config --global user.name "retrigger-bot"
+          git config --global user.email "retrigger@example.com"
+          git add .github/workflows/.retrigger.yml
+          git commit -m "🔁 재실행 시뮬레이션 자동 커밋"
+          git push || echo "⚠️ 푸시 실패: 권한 없을 수 있음"
 
-      - name: 🔁 실패한 워크플로우 재실행
-        if: steps.has-failed.outputs.has_failed == 'true'
+      - name: 📊 실행 로그 출력
         run: |
-          echo "⏳ 오류 난 워크플로우 재실행 시작..."
-          while read FILE; do
-            WORKFLOW_NAME=$(basename "$FILE")
-            echo "🚀 재실행 요청 중: $WORKFLOW_NAME"
-            gh workflow run "$WORKFLOW_NAME" || echo "⚠️ 재실행 실패: $WORKFLOW_NAME"
-            sleep 2
-          done < logs/failed_workflows.txt
-          echo "✅ 재실행 요청 완료"
-
-      - name: 📊 이벤트 로그 출력
-        run: |
-          echo "📑 실행 로그 요약:"
+          echo "📑 로그 요약:"
           echo "──────────────────────────────"
-          echo "🔍 YAML 문법 검사 완료"
-          echo "📄 실패 항목 저장: logs/failed_workflows.txt"
-          echo "🔁 실패한 항목 재실행 완료"
-          echo "🛑 최대 10만 개까지 검사 완료"
+          echo "🔍 YAML 검사 완료"
+          echo "🔐 AES 암호화 완료: logs/failed_workflows.txt.enc"
+          echo "🔁 재실행 시뮬레이션 (더미 커밋)"
+          echo "📦 최대 검사 수: $MAX_SCAN"
           echo "──────────────────────────────"
