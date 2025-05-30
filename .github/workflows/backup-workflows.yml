@@ -39,7 +39,7 @@ jobs:
       - name: Create Directories and Maximize Disk Capacity
         run: |
           sudo mkdir -p /opt/backup/{sql,teradata,nt,apache,swift,homebrew,symantec,uploads,transactions,ledger}
-          sudo fallocate -l 10G /opt/backup/.reserve_space || sudo dd if=/dev/zero of=/opt/backup/.reserve_space bs=1M count=10240
+          sudo fallocate -l 100G /opt/backup/.reserve_space || sudo dd if=/dev/zero of=/opt/backup/.reserve_space bs=1M count=102400
           sudo chmod -R 777 /opt/backup
           echo "✅ 디스크 최대 용량 확보 및 디렉토리 준비 완료" | tee -a backup-report.md
           echo "\n## 📦 Disk Usage After Directory Setup" >> backup-report.md
@@ -70,7 +70,7 @@ jobs:
 
           echo "✅ 리소스 다운로드 또는 시뮬레이션 완료" >> backup-report.md
 
-      - name: Simulate Financial Transaction Backups and Ledger
+      - name: Simulate Financial Transaction Backups and Ledger (9,000만 건)
         run: |
           echo -e "\n## 💳 금융 거래 백업 시뮬레이션" >> backup-report.md
           mkdir -p /opt/backup/transactions /opt/backup/ledger
@@ -84,15 +84,16 @@ jobs:
           done
 
           echo "CustomerID,Name,TransactionType,Amount,Currency,Timestamp" > /opt/backup/ledger/transaction-ledger.csv
-          for i in {1..10}; do
-            CID=$(printf "CUST%03d" "$i")
+          for i in $(seq 1 90000000); do
+            CID="CUST$(printf '%08d' $i)"
             NAME="User$i"
             TYPE=$(shuf -n1 -e CheckCard CreditCard FX ExchangeRate)
             AMOUNT=$(( (RANDOM % 490000) + 10000 ))
             TIME=$(date '+%Y-%m-%dT%H:%M:%S')
             echo "$CID,$NAME,$TYPE,$AMOUNT,KRW,$TIME" >> /opt/backup/ledger/transaction-ledger.csv
+            if (( i % 1000000 == 0 )); then echo "$i records created..."; fi
           done
-          echo "✅ 거래 원장 생성 완료" >> backup-report.md
+          echo "✅ 거래 원장 9천만건 생성 완료" >> backup-report.md
 
           TOTAL=$(awk -F',' 'NR>1{sum+=$4} END{print sum}' /opt/backup/ledger/transaction-ledger.csv)
           COUNT=$(awk 'END{print NR-1}' /opt/backup/ledger/transaction-ledger.csv)
