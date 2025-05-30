@@ -1,52 +1,95 @@
-name: Global Card Transaction Backup (Encrypted UTC/KST)
+name: Full Infra Setup and Backup Automation
 
 on:
-  schedule:
-    - cron: '*/5 * * * *'  # 5분마다 실행
   workflow_dispatch:
+  schedule:
+    - cron: '0 * * * *'
 
 permissions:
   contents: write
 
 jobs:
-  card-backup:
+  infra-backup:
     runs-on: ubuntu-latest
 
     steps:
       - name: 📦 Checkout
         uses: actions/checkout@v4
 
-      - name: 🕒 Set UTC + KST timestamps
-        id: time
+      - name: ⚙️ Install System Packages
         run: |
-          echo "utc_time=$(date -u +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
-          echo "kst_time=$(TZ=Asia/Seoul date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+          sudo apt-get update
+          sudo apt-get install -y \
+            curl gnupg unzip default-jdk \
+            apache2 libaio1 libaio-dev \
+            swift odbcinst unixodbc libodbc1
 
-      - name: 📁 Create backup directories
-        run: mkdir -p checkcard_backups
-
-      - name: 💳 Simulate Card Transactions and Encrypt
+      - name: 🕗 Set UTC + KST Time
+        id: timestamp
         run: |
-          # 체크카드 거래 백업
-          echo "-- 체크카드 거래 내역" > checkcard.sql
-          echo "CREATE TABLE checkcard_transactions (id INT, customer_id INT, amount DECIMAL, masked_card TEXT);" >> checkcard.sql
-          echo "INSERT INTO checkcard_transactions VALUES (1, 1001, 15000.00, '****-****-****-1234');" >> checkcard.sql
+          echo "utc=$(date -u +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+          echo "kst=$(TZ=Asia/Seoul date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
 
-          # 신용카드 거래 백업
-          echo "-- 신용카드 거래 내역" > creditcard.sql
-          echo "CREATE TABLE creditcard_transactions (id INT, customer_id INT, amount DECIMAL, masked_card TEXT);" >> creditcard.sql
-          echo "INSERT INTO creditcard_transactions VALUES (2, 2002, 32000.00, '****-****-****-5678');" >> creditcard.sql
+      - name: 📂 Create Directories for All Services
+        run: |
+          mkdir -p \
+            teradata_backups swift_backups apache_backups \
+            springboot springboot_backups java_backups \
+            db_backups swift_send swift_receive apache_www logs
 
-          # GPG 암호화
-          gpg --batch --yes --passphrase "secret" -c checkcard.sql
-          gpg --batch --yes --passphrase "secret" -c creditcard.sql
+      # Apache Setup
+      - name: 🔧 Apache Installation Verification
+        run: |
+          sudo systemctl start apache2
+          echo "<h1>Hello from Apache</h1>" | sudo tee apache_www/index.html
+          sudo cp -r apache_www/* /var/www/html/
+          curl -s http://localhost || echo "Apache not responding"
+          tar -czf apache_backups/apache-html-${{ steps.timestamp.outputs.kst }}.tar.gz /var/www/html
 
-          # 파일 이름에 UTC + KST 타임스탬프 포함
-          mv checkcard.sql.gpg checkcard_backups/checkcard-${{ steps.time.outputs.kst_time }}-UTC${{ steps.time.outputs.utc_time }}.sql.gpg
-          mv creditcard.sql.gpg checkcard_backups/creditcard-${{ steps.time.outputs.kst_time }}-UTC${{ steps.time.outputs.utc_time }}.sql.gpg
+      # Swift File Simulation
+      - name: 📄 Swift Send/Receive Files
+        run: |
+          echo '<Swift><Tx>SEND</Tx><Status>OK</Status></Swift>' > swift_send/send-${{ steps.timestamp.outputs.kst }}.xml
+          echo '<Swift><Tx>RECEIVE</Tx><Status>OK</Status></Swift>' > swift_receive/receive-${{ steps.timestamp.outputs.kst }}.xml
+          zip -j swift_backups/swift-${{ steps.timestamp.outputs.kst }}.zip swift_send/* swift_receive/*
 
-          # 원본 제거
-          rm -f checkcard.sql creditcard.sql
+      # Spring Boot Setup
+      - name: 🌟 Spring Boot Installation & Test
+        run: |
+          curl -L https://repo.spring.io/release/org/springframework/boot/spring-boot-samples/2.7.3/spring-boot-samples-2.7.3.jar \
+            -o springboot/app.jar
+          echo 'java -jar $(pwd)/springboot/app.jar' > springboot/run.sh
+          chmod +x springboot/run.sh
+          nohup java -jar springboot/app.jar > springboot/run.log 2>&1 &
+          sleep 5
+          curl -s http://localhost:8080 || echo "SpringBoot not responding"
+          pkill -f 'springboot/app.jar' || true
+          cp springboot/app.jar springboot_backups/app-${{ steps.timestamp.outputs.kst }}.jar
 
-      - name: ✅ Show backup files
-        run: ls -al checkcard_backups
+      # Java WAR/JAR Backup
+      - name: ☕ Java WAR/JAR Packaging
+        run: |
+          mkdir -p java_src
+          echo 'public class Hello { public static void main(String[] args) { System.out.println("Hello, World!"); } }' > java_src/Hello.java
+          javac java_src/Hello.java
+          jar cf hello.jar -C java_src .
+          cp hello.jar java_backups/hello-${{ steps.timestamp.outputs.kst }}.jar
+          zip -r java_backups/java-src-${{ steps.timestamp.outputs.kst }}.zip java_src
+
+      # DB Dump Simulation + Encryption
+      - name: 📊 Database Dump + Encrypt
+        run: |
+          echo '-- DB Backup' > db.sql
+          echo 'CREATE TABLE logs (id INT, message TEXT);' >> db.sql
+          echo "INSERT INTO logs VALUES (1, '백업 실행');" >> db.sql
+          gpg --batch --yes --passphrase "secret" -c db.sql
+          mv db.sql.gpg db_backups/db-${{ steps.timestamp.outputs.kst }}.sql.gpg
+
+      # Final Log Display
+      - name: 📈 Show All Backup Artifacts
+        run: |
+          echo "Apache files:" && ls -lh apache_backups
+          echo "Swift files:" && ls -lh swift_backups
+          echo "SpringBoot files:" && ls -lh springboot_backups
+          echo "Java JAR/WAR:" && ls -lh java_backups
+          echo "DB Dumps:" && ls -lh db_backups
