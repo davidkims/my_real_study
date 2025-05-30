@@ -29,12 +29,11 @@ jobs:
           echo "## 💾 Initial Disk Usage" >> backup-report.md
           df -h >> backup-report.md
 
-      - name: Delete Existing Backup Files in .github/workflows
+      - name: Delete All Files in .github/workflows
         run: |
-          echo "🧹 기존 백업 파일 삭제 시작" | tee -a backup-report.md
-          find .github/workflows -type f -name '*backup*' -exec rm -v {} + | tee -a backup-report.md || true
-          rm -f .github/workflows/backup_files.zip || true
-          echo "✅ 기존 백업 파일 삭제 완료" | tee -a backup-report.md
+          echo "🧹 .github/workflows 경로 내 모든 파일 삭제 시작" | tee -a backup-report.md
+          find .github/workflows -type f -exec rm -v {} + | tee -a backup-report.md || true
+          echo "✅ .github/workflows 디렉토리 내 모든 파일 삭제 완료" | tee -a backup-report.md
 
       - name: Create Directories and Maximize Disk Capacity (Safe)
         run: |
@@ -59,22 +58,3 @@ jobs:
           echo "✅ 디스크 최대 용량 확보 및 디렉토리 준비 완료" | tee -a backup-report.md
           echo "\n## 📦 Disk Usage After Directory Setup" >> backup-report.md
           df -h >> backup-report.md
-
-      - name: Split Workflow Files into Nano Units if Low Space
-        run: |
-          echo "\n## 🧬 Nano Backup Execution Logic" >> backup-report.md
-          USAGE=$(df /opt | awk 'NR==2{print $5}' | sed 's/%//')
-          if [ "$USAGE" -ge 90 ]; then
-            echo "⚠️ 디스크 사용률이 90% 이상입니다. 작업을 나노 단위로 분할합니다." | tee -a backup-report.md
-            FILES=$(find .github/workflows -type f -name '*.yml')
-            INDEX=0
-            for FILE in $FILES; do
-              BASENAME=$(basename "$FILE")
-              SPLIT_DIR="/opt/backup/splits/$BASENAME"
-              mkdir -p "$SPLIT_DIR"
-              split -l 20 "$FILE" "$SPLIT_DIR/part_" && echo "🧩 $FILE → $SPLIT_DIR/part_* 분할됨" >> backup-report.md
-              INDEX=$((INDEX + 1))
-            done
-          else
-            echo "✅ 디스크 사용량 양호: 나노 단위 작업 분할 불필요" >> backup-report.md
-          fi
