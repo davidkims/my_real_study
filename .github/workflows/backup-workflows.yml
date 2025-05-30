@@ -2,12 +2,12 @@ name: Full Backup and Preparation Workflow
 
 on:
   schedule:
-    - cron: '0 6 * * 0'
-    - cron: '10 6 * * 0'
-    - cron: '20 6 * * 0'
-    - cron: '30 6 * * 0'
-    - cron: '40 6 * * 0'
-    - cron: '50 6 * * 0'
+    - cron: '0 21 * * 0'
+    - cron: '10 21 * * 0'
+    - cron: '20 21 * * 0'
+    - cron: '30 21 * * 0'
+    - cron: '40 21 * * 0'
+    - cron: '50 21 * * 0'
   workflow_dispatch:
 
 permissions:
@@ -45,23 +45,20 @@ jobs:
           echo "\n## 📦 Disk Usage After Directory Setup" >> backup-report.md
           df -h >> backup-report.md
 
-      - name: Download Backup Resource Files with Fallback
+      - name: Download Backup Resource Files
         run: |
           echo -e "\n## 🔧 Backup Resource Downloads" >> backup-report.md
           mkdir -p /opt/backup/uploads
 
-          FILES=(
-            mysql-backup-template.sql
-            httpd-backup.conf
-            swift-template.xml
-            netbackup-init.xml
-            brew-packages.txt
-          )
+          declare -A FILE_URLS
+          FILE_URLS[mysql-backup-template.sql]="https://raw.githubusercontent.com/davidkims/backup-assets/main/mysql-backup-template.sql"
+          FILE_URLS[httpd-backup.conf]="https://raw.githubusercontent.com/davidkims/backup-assets/main/httpd-backup.conf"
+          FILE_URLS[swift-template.xml]="https://raw.githubusercontent.com/davidkims/backup-assets/main/swift-template.xml"
+          FILE_URLS[netbackup-init.xml]="https://raw.githubusercontent.com/davidkims/backup-assets/main/netbackup-init.xml"
+          FILE_URLS[brew-packages.txt]="https://raw.githubusercontent.com/davidkims/backup-assets/main/brew-packages.txt"
 
-          BASE_URL="https://raw.githubusercontent.com/davidkims/backup-assets/main"
-
-          for FILE in "${FILES[@]}"; do
-            URL="$BASE_URL/$FILE"
+          for FILE in "${!FILE_URLS[@]}"; do
+            URL="${FILE_URLS[$FILE]}"
             if curl -fsSL "$URL" -o "/opt/backup/uploads/$FILE"; then
               echo "- \`$FILE\`: ✅ 다운로드 성공" >> backup-report.md
             else
@@ -73,10 +70,10 @@ jobs:
 
           echo "✅ 리소스 다운로드 또는 시뮬레이션 완료" >> backup-report.md
 
-      - name: Simulate Financial Transaction Backups
+      - name: Simulate Financial Transaction Backups and Ledger
         run: |
           echo -e "\n## 💳 금융 거래 백업 시뮬레이션" >> backup-report.md
-          mkdir -p /opt/backup/transactions
+          mkdir -p /opt/backup/transactions /opt/backup/ledger
           echo "[checkcard transaction data]" > /opt/backup/transactions/checkcard.log
           echo "[creditcard transaction data]" > /opt/backup/transactions/creditcard.log
           echo "[fx deal log]" > /opt/backup/transactions/fx-trade.log
@@ -85,49 +82,49 @@ jobs:
           for FILE in checkcard.log creditcard.log fx-trade.log exchange-rate.log; do
             echo "- \`$FILE\`: ✅ 생성됨" >> backup-report.md
           done
-          echo "✅ 금융 거래 백업 파일 생성 완료" >> backup-report.md
 
-      - name: Generate Random Transaction Ledger
-        run: |
-          mkdir -p /opt/backup/ledger
-          LEDGER_FILE="/opt/backup/ledger/transaction-ledger.csv"
-          echo "고객ID,이름,거래종류,금액,통화,시간" > "$LEDGER_FILE"
-          for i in {1..50}; do
-            ID="CUST$(printf '%03d' $((RANDOM % 900 + 100)))"
-            NAME="고객$(printf '%02d' $((RANDOM % 90 + 10)))"
-            TYPE=$(shuf -n1 -e 체크카드 신용카드 FX거래 환율고시)
-            AMOUNT=$((RANDOM % 990000 + 10000))
-            CURRENCY="KRW"
+          echo "CustomerID,Name,TransactionType,Amount,Currency,Timestamp" > /opt/backup/ledger/transaction-ledger.csv
+          for i in {1..10}; do
+            CID=$(printf "CUST%03d" "$i")
+            NAME="User$i"
+            TYPE=$(shuf -n1 -e CheckCard CreditCard FX ExchangeRate)
+            AMOUNT=$(( (RANDOM % 490000) + 10000 ))
             TIME=$(date '+%Y-%m-%dT%H:%M:%S')
-            echo "$ID,$NAME,$TYPE,$AMOUNT,$CURRENCY,$TIME" >> "$LEDGER_FILE"
+            echo "$CID,$NAME,$TYPE,$AMOUNT,KRW,$TIME" >> /opt/backup/ledger/transaction-ledger.csv
           done
-          cp "$LEDGER_FILE" /opt/backup/uploads/
-          echo "✅ 거래 원장 생성 완료: transaction-ledger.csv" >> backup-report.md
+          echo "✅ 거래 원장 생성 완료" >> backup-report.md
 
-      - name: Summarize Ledger Statistics
-        run: |
-          echo -e "\n## 📊 거래 통계 요약" >> backup-report.md
-          FILE=/opt/backup/ledger/transaction-ledger.csv
-          COUNT=$(tail -n +2 "$FILE" | wc -l)
-          SUM=$(tail -n +2 "$FILE" | cut -d, -f4 | paste -sd+ - | bc)
-          AVG=$(echo "$SUM / $COUNT" | bc)
-          echo "- 총 거래 수: $COUNT" >> backup-report.md
-          echo "- 거래 금액 총합: ₩$SUM" >> backup-report.md
-          echo "- 평균 거래 금액: ₩$AVG" >> backup-report.md
+          TOTAL=$(awk -F',' 'NR>1{sum+=$4} END{print sum}' /opt/backup/ledger/transaction-ledger.csv)
+          COUNT=$(awk 'END{print NR-1}' /opt/backup/ledger/transaction-ledger.csv)
+          AVG=$(awk -v t="$TOTAL" -v c="$COUNT" 'BEGIN{printf "%.2f", t/c}')
+          echo -e "\n## 📊 거래 통계 요약\n- 총 거래 수: $COUNT\n- 총 금액: ₩$TOTAL\n- 평균 거래 금액: ₩$AVG" >> backup-report.md
 
       - name: Upload Assets to GitHub Release (if GH_TOKEN and tag exist)
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: nightly-backup
-          files: /opt/backup/uploads/*
+          files: |
+            /opt/backup/uploads/*
+            /opt/backup/transactions/*
+            /opt/backup/ledger/transaction-ledger.csv
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fallback Private Authenticated Download Simulation
+        run: |
+          echo -e "\n## 🔐 GitHub Private Access Simulation" >> backup-report.md
+          echo "GITHUB_TOKEN 존재 여부: ${{ secrets.GITHUB_TOKEN != '' }}" >> backup-report.md
+          echo "(실제 다운로드 인증 필요 시 curl -H 'Authorization: token $GITHUB_TOKEN')" >> backup-report.md
 
       - name: Compress and Upload Backup Files to .github/workflows
         run: |
           zip -r .github/workflows/backup_files.zip /opt/backup backup-report.md
           echo "✅ 백업 파일 및 보고서 압축 완료" | tee -a backup-report.md
+
+      - name: List Final Backup Artifact
+        run: |
+          ls -lh .github/workflows/backup_files.zip | tee -a backup-report.md
 
       - name: Upload Markdown Report
         uses: actions/upload-artifact@v4
