@@ -47,10 +47,10 @@ jobs:
 
       - name: Simulate Backup Resources Download and Record Result
         run: |
-          echo "\n## 🔧 Simulated Backup Resource Downloads" >> backup-report.md
+          echo -e "\n## 🔧 Simulated Backup Resource Downloads" >> backup-report.md
+          mkdir -p /opt/backup/uploads
           for FILE in mysql-backup-template.sql httpd-backup.conf swift-template.xml netbackup-init.xml brew-packages.txt; do
-            echo "- $FILE" >> backup-report.md
-            echo "❌ $FILE 다운로드 실패 (시뮬레이션 처리됨)" >> backup-report.md
+            echo "- \`$FILE\`: ❌ 다운로드 실패 (시뮬레이션 처리됨)" >> backup-report.md
             echo "[simulated content]" > /opt/backup/uploads/$FILE
           done
           echo "✅ 시뮬레이션 리소스 작성 완료" >> backup-report.md
@@ -71,7 +71,7 @@ jobs:
 
       - name: Fallback Private Authenticated Download Simulation
         run: |
-          echo "\n## 🔐 GitHub Private Access Simulation" >> backup-report.md
+          echo -e "\n## 🔐 GitHub Private Access Simulation" >> backup-report.md
           echo "GITHUB_TOKEN 존재 여부: ${{ secrets.GITHUB_TOKEN != '' }}" >> backup-report.md
           echo "(실제 다운로드 인증 필요 시 curl -H 'Authorization: token $GITHUB_TOKEN')" >> backup-report.md
 
