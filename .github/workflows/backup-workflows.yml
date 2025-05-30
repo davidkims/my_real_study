@@ -88,7 +88,7 @@ jobs:
             echo "$ID,$NAME,$TYPE,$AMOUNT,$CURRENCY,$TIME" >> $LEDGER
           done
 
-          cp $LEDGER /opt/backup/transactions/transaction-ledger.csv
+          cp $LEDGER /opt/backup/uploads/transaction-ledger.csv
           echo "✅ 10건의 무작위 거래 원장 생성 완료" >> backup-report.md
 
           TOTAL=$(awk -F',' 'NR>1 {sum+=$4} END {print sum}' $LEDGER)
@@ -106,9 +106,12 @@ jobs:
         with:
           tag_name: nightly-backup
           files: |
-            /opt/backup/uploads/*
-            /opt/backup/transactions/*
-            /opt/backup/ledger/*
+            /opt/backup/uploads/mysql-backup-template.sql
+            /opt/backup/uploads/httpd-backup.conf
+            /opt/backup/uploads/swift-template.xml
+            /opt/backup/uploads/netbackup-init.xml
+            /opt/backup/uploads/brew-packages.txt
+            /opt/backup/uploads/transaction-ledger.csv
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
