@@ -1,4 +1,3 @@
-# 워크플로 이름1: 백업 + 모니터링 + 대시보드 + 릴리스
 name: Full System Automation with Backup, Test, and Reporting
 
 on:
@@ -6,7 +5,7 @@ on:
     branches: [main]
   pull_request:
   schedule:
-    - cron: '*/5 * * * *'  # 5분마다 실행
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -18,94 +17,94 @@ jobs:
   full-backup:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: 📦 Checkout
+        uses: actions/checkout@v4
 
-    - name: Set timestamp (KST)
-      id: vars
-      run: |
-        export TZ=Asia/Seoul
-        echo "timestamp=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
-        echo "date_fmt=$(date '+%Y-%m-%d %H:%M:%S (KST)')" >> $GITHUB_OUTPUT
+      - name: 🕒 Set timestamp (KST)
+        id: vars
+        run: |
+          export TZ=Asia/Seoul
+          echo "timestamp=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+          echo "date_fmt=$(date '+%Y-%m-%d %H:%M:%S (KST)')" >> $GITHUB_OUTPUT
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y apache2 unzip curl default-jdk libaio-dev gnupg
+      - name: 🧰 Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apache2 unzip curl default-jdk libaio-dev gnupg
 
-    - name: Prepare backup directories
-      run: |
-        mkdir -p apache_backups nt-backup/bin db_backups oracle_backups backups reports \
-                 eai_backups edi_logs springboot springboot_backups maven_backups \
-                 public/reports checkcard_backups teradata_backups
+      - name: 📁 Prepare backup directories
+        run: |
+          mkdir -p apache_backups nt-backup/bin db_backups oracle_backups backups reports \
+                   eai_backups edi_logs springboot springboot_backups maven_backups \
+                   public/reports checkcard_backups teradata_backups
 
-    - name: Setup Spring Boot JAR
-      run: |
-        curl -L https://repo.spring.io/release/org/springframework/boot/spring-boot-samples/2.7.3/spring-boot-samples-2.7.3.jar \
-          -o springboot/app.jar
-        echo "java -jar $(pwd)/springboot/app.jar" > springboot/run.sh
-        chmod +x springboot/run.sh
+      - name: ☕ Setup Spring Boot JAR
+        run: |
+          curl -L https://repo.spring.io/release/org/springframework/boot/spring-boot-samples/2.7.3/spring-boot-samples-2.7.3.jar \
+            -o springboot/app.jar
+          echo "java -jar $(pwd)/springboot/app.jar" > springboot/run.sh
+          chmod +x springboot/run.sh
 
-    - name: Generate .env and application.yml
-      run: |
-        echo "APP_ENV=production" > springboot/.env
-        mkdir -p springboot/src/main/resources
-        printf "spring:\n  application:\n    name: SampleApp\n  server:\n    port: 8080\n" > springboot/src/main/resources/application.yml
+      - name: ⚙️ Generate .env and application.yml
+        run: |
+          echo "APP_ENV=production" > springboot/.env
+          mkdir -p springboot/src/main/resources
+          printf "spring:\n  application:\n    name: SampleApp\n  server:\n    port: 8080\n" > springboot/src/main/resources/application.yml
 
-    - name: Install Maven
-      run: |
-        curl -LO https://downloads.apache.org/maven/maven-3/3.9.6/binaries/apache-maven-3.9.6-bin.zip
-        unzip apache-maven-3.9.6-bin.zip -d ./maven_backups
-        mv maven_backups/apache-maven-3.9.6 maven_backups/maven-${{ steps.vars.outputs.timestamp }}
-        echo "$(pwd)/maven_backups/maven-${{ steps.vars.outputs.timestamp }}/bin" >> $GITHUB_PATH
+      - name: 🧱 Install Maven
+        run: |
+          curl -LO https://downloads.apache.org/maven/maven-3/3.9.6/binaries/apache-maven-3.9.6-bin.zip
+          unzip apache-maven-3.9.6-bin.zip -d ./maven_backups
+          mv maven_backups/apache-maven-3.9.6 maven_backups/maven-${{ steps.vars.outputs.timestamp }}
+          echo "$(pwd)/maven_backups/maven-${{ steps.vars.outputs.timestamp }}/bin" >> $GITHUB_PATH
 
-    - name: Test Maven
-      run: mvn --version
+      - name: ✅ Test Maven
+        run: mvn --version
 
-    - name: Run Spring Boot for test
-      run: |
-        nohup java -jar springboot/app.jar > springboot/run.log 2>&1 &
-        sleep 10
-        curl -s http://localhost:8080 || echo "No default route"
-        pkill -f 'springboot/app.jar' || true
+      - name: 🚀 Run Spring Boot for test
+        run: |
+          nohup java -jar springboot/app.jar > springboot/run.log 2>&1 &
+          sleep 10
+          curl -s http://localhost:8080 || echo "No default route"
+          pkill -f 'springboot/app.jar' || true
 
-    - name: Backup Artifacts
-      run: |
-        cp springboot/app.jar springboot_backups/app-${{ steps.vars.outputs.timestamp }}.jar
-        zip -r backups/workflows-backup-${{ steps.vars.outputs.timestamp }}.zip .github/workflows
+      - name: 💾 Backup Artifacts
+        run: |
+          cp springboot/app.jar springboot_backups/app-${{ steps.vars.outputs.timestamp }}.jar
+          zip -r backups/workflows-backup-${{ steps.vars.outputs.timestamp }}.zip .github/workflows
 
-    - name: Simulate and Encrypt Logistics Customer DB
-      run: |
-        echo "-- 물류 고객 가상 백업 (주민번호 마스킹 적용)" > db_temp.sql
-        echo "CREATE TABLE customers (id INT, name TEXT, phone TEXT, ssn TEXT);" >> db_temp.sql
-        echo "INSERT INTO customers VALUES (1, '홍길동', '010-1234-5678', '900101-*******');" >> db_temp.sql
-        gpg --batch --yes --passphrase "secret" -c db_temp.sql
-        mv db_temp.sql.gpg db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql.gpg
+      - name: 🔐 Simulate and Encrypt Logistics Customer DB
+        run: |
+          echo "-- 물류 고객 가상 백업 (주민번호 마스킹 적용)" > db_temp.sql
+          echo "CREATE TABLE customers (id INT, name TEXT, phone TEXT, ssn TEXT);" >> db_temp.sql
+          echo "INSERT INTO customers VALUES (1, '홍길동', '010-1234-5678', '900101-*******');" >> db_temp.sql
+          gpg --batch --yes --passphrase "secret" -c db_temp.sql
+          mv db_temp.sql.gpg db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql.gpg
 
-    - name: Oracle DB Backup (encrypted)
-      run: |
-        echo "-- Oracle DB Export (simulated)" > oracle.dmp
-        echo "EXPORT_DATE=${{ steps.vars.outputs.date_fmt }}" >> oracle.dmp
-        gpg --batch --yes --passphrase "secret" -c oracle.dmp
-        mv oracle.dmp.gpg oracle_backups/oracle-backup-${{ steps.vars.outputs.timestamp }}.dmp.gpg
+      - name: 🟠 Oracle DB Backup (encrypted)
+        run: |
+          echo "-- Oracle DB Export (simulated)" > oracle.dmp
+          echo "EXPORT_DATE=${{ steps.vars.outputs.date_fmt }}" >> oracle.dmp
+          gpg --batch --yes --passphrase "secret" -c oracle.dmp
+          mv oracle.dmp.gpg oracle_backups/oracle-backup-${{ steps.vars.outputs.timestamp }}.dmp.gpg
 
-    - name: Checkcard DB Backup (encrypted)
-      run: |
-        echo "-- 체크카드 거래 백업" > checkcard.sql
-        echo "CREATE TABLE transactions (id INT, customer_id INT, amount DECIMAL, masked_card TEXT);" >> checkcard.sql
-        echo "INSERT INTO transactions VALUES (1, 1001, 15000.00, '****-****-****-1234');" >> checkcard.sql
-        gpg --batch --yes --passphrase "secret" -c checkcard.sql
-        mv checkcard.sql.gpg checkcard_backups/checkcard-${{ steps.vars.outputs.timestamp }}.sql.gpg
+      - name: 🟢 Checkcard DB Backup (encrypted)
+        run: |
+          echo "-- 체크카드 거래 백업" > checkcard.sql
+          echo "CREATE TABLE transactions (id INT, customer_id INT, amount DECIMAL, masked_card TEXT);" >> checkcard.sql
+          echo "INSERT INTO transactions VALUES (1, 1001, 15000.00, '****-****-****-1234');" >> checkcard.sql
+          gpg --batch --yes --passphrase "secret" -c checkcard.sql
+          mv checkcard.sql.gpg checkcard_backups/checkcard-${{ steps.vars.outputs.timestamp }}.sql.gpg
 
-    - name: Teradata Backup (encrypted)
-      run: |
-        echo "-- Teradata Backup" > teradata.dmp
-        echo "EXPORT_DATE=${{ steps.vars.outputs.date_fmt }}" >> teradata.dmp
-        gpg --batch --yes --passphrase "secret" -c teradata.dmp
-        mv teradata.dmp.gpg teradata_backups/teradata-${{ steps.vars.outputs.timestamp }}.dmp.gpg
+      - name: 🔵 Teradata Backup (encrypted)
+        run: |
+          echo "-- Teradata Backup" > teradata.dmp
+          echo "EXPORT_DATE=${{ steps.vars.outputs.date_fmt }}" >> teradata.dmp
+          gpg --batch --yes --passphrase "secret" -c teradata.dmp
+          mv teradata.dmp.gpg teradata_backups/teradata-${{ steps.vars.outputs.timestamp }}.dmp.gpg
 
-    - name: Simulate EAI + EDI logs
-      run: |
-        echo "<msg><status>OK</status></msg>" > eai_backups/send-${{ steps.vars.outputs.timestamp }}.xml
-        echo "<msg><status>OK</status></msg>" > eai_backups/receive-${{ steps.vars.outputs.timestamp }}.xml
-        echo "$(date) 송신 완료" >> edi_logs
+      - name: 🔄 Simulate EAI + EDI logs
+        run: |
+          echo "<msg><status>OK</status></msg>" > eai_backups/send-${{ steps.vars.outputs.timestamp }}.xml
+          echo "<msg><status>OK</status></msg>" > eai_backups/receive-${{ steps.vars.outputs.timestamp }}.xml
+          echo "$(date) 송신 완료" >> edi_logs/send-${{ steps.vars.outputs.timestamp }}.log
