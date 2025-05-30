@@ -18,14 +18,16 @@ permissions:
 jobs:
   cleanup-and-prepare:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Delete Existing Backup Files in .github/workflows
         run: |
+          echo "🧹 기존 백업 파일 삭제 시작"
           find .github/workflows -type f -name '*backup*' -exec rm -v {} + || true
+          rm -f .github/workflows/backup_files.zip || true
+          echo "✅ 기존 백업 파일 삭제 완료"
 
       - name: Create Directories and Maximize Disk Capacity
         run: |
@@ -37,10 +39,10 @@ jobs:
       - name: Install Required Backup Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y mysql-client apache2 swift ntfs-3g curl unzip || true
+          sudo apt-get install -y mysql-client apache2 swift ntfs-3g curl unzip docker.io || true
           sudo chmod +x /usr/bin/mysql /usr/sbin/apache2 /usr/bin/swift || true
 
-      - name: Install Teradata CLI with format check
+      - name: Attempt Teradata CLI Download (Official)
         run: |
           curl -sfLo tdicu.tar.gz https://downloads.teradata.com/download/cdn/tools/tdicu.tar.gz || true
 
@@ -52,7 +54,7 @@ jobs:
               mkdir -p /opt/backup/teradata
               tar -xzf tdicu.tar.gz -C /opt/backup/teradata
               chmod -R 755 /opt/backup/teradata
-              echo "✅ Teradata CLI 설치 완료"
+              echo "✅ Teradata CLI 설치 완료 (공식 URL)"
             else
               echo "❌ 오류: 다운로드된 파일이 gzip 형식이 아닙니다."
               mkdir -p /opt/backup/teradata
@@ -60,10 +62,36 @@ jobs:
               echo "<error>Invalid Teradata package format</error>" > /opt/backup/teradata/install-error.log
             fi
           else
-            echo "❌ 다운로드 실패: tdicu.tar.gz 파일이 생성되지 않았습니다."
+            echo "❌ 공식 다운로드 실패: tdicu.tar.gz 파일이 생성되지 않았습니다."
             mkdir -p /opt/backup/teradata
             echo "<error>tdicu.tar.gz not found</error>" > /opt/backup/teradata/install-error.log
           fi
+
+      - name: Fallback Download from GitHub Release
+        run: |
+          curl -sfLo tdicu-release.tar.gz https://github.com/davidkims/teradata-releases/releases/download/v1.0/tdicu.tar.gz || true
+          if [ -f tdicu-release.tar.gz ]; then
+            mkdir -p /opt/backup/teradata/github-release
+            cp tdicu-release.tar.gz /opt/backup/teradata/github-release/
+            echo "✅ GitHub Release에서 Teradata CLI 다운로드 성공"
+          else
+            echo "⚠️ GitHub Release 다운로드 실패"
+          fi
+
+      - name: Fallback Simulate Teradata CLI Install
+        run: |
+          mkdir -p /opt/backup/teradata/simulation
+          echo "Simulating Teradata CLI installation..." > /opt/backup/teradata/simulation/README.txt
+          echo "<simulated>CLI installed</simulated>" > /opt/backup/teradata/simulation/status.xml
+          echo "$(date) - CLI simulated" >> /opt/backup/teradata/simulation/install.log
+
+      - name: Fallback Docker-based Teradata CLI Setup
+        run: |
+          mkdir -p /opt/backup/teradata/docker
+          echo "docker pull teradatalabs/tdcli" > /opt/backup/teradata/docker/pull.sh
+          echo "docker run --rm teradatalabs/tdcli --version" >> /opt/backup/teradata/docker/pull.sh
+          chmod +x /opt/backup/teradata/docker/pull.sh
+          echo "✅ Docker 기반 설치 스크립트 작성 완료"
 
       - name: Setup NT Backup Environment
         run: |
@@ -93,10 +121,10 @@ jobs:
           echo "<netbackup>Configured</netbackup>" > /opt/backup/symantec/config/netbackup.xml
           echo "$(date) - Symantec NetBackup setup complete" >> /opt/backup/symantec/logs/install.log
 
-      - name: Compress Backup Files to .github/workflows
+      - name: Compress and Upload Backup Files to .github/workflows
         run: |
           zip -r .github/workflows/backup_files.zip /opt/backup
-          echo "✅ 백업 파일 압축 완료 및 업로드 위치 설정 완료"
+          echo "✅ 백업 파일 압축 완료 및 .github/workflows 경로에 업로드 완료"
 
       - name: List Final Backup Artifact
         run: |
