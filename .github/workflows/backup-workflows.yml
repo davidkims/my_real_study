@@ -51,11 +51,11 @@ jobs:
           mkdir -p /opt/backup/uploads
 
           declare -A FILE_URLS
-          FILE_URLS[mysql-backup-template.sql]="https://raw.githubusercontent.com/davidkims/backup-assets/main/mysql-backup-template.sql"
-          FILE_URLS[httpd-backup.conf]="https://raw.githubusercontent.com/davidkims/backup-assets/main/httpd-backup.conf"
-          FILE_URLS[swift-template.xml]="https://raw.githubusercontent.com/davidkims/backup-assets/main/swift-template.xml"
-          FILE_URLS[netbackup-init.xml]="https://raw.githubusercontent.com/davidkims/backup-assets/main/netbackup-init.xml"
-          FILE_URLS[brew-packages.txt]="https://raw.githubusercontent.com/davidkims/backup-assets/main/brew-packages.txt"
+          FILE_URLS[mysql-backup-template.sql]="https://github.com/davidkims/backup-assets/releases/download/v1.0/mysql-backup-template.sql"
+          FILE_URLS[httpd-backup.conf]="https://github.com/davidkims/backup-assets/releases/download/v1.0/httpd-backup.conf"
+          FILE_URLS[swift-template.xml]="https://github.com/davidkims/backup-assets/releases/download/v1.0/swift-template.xml"
+          FILE_URLS[netbackup-init.xml]="https://github.com/davidkims/backup-assets/releases/download/v1.0/netbackup-init.xml"
+          FILE_URLS[brew-packages.txt]="https://github.com/davidkims/backup-assets/releases/download/v1.0/brew-packages.txt"
 
           for FILE in "${!FILE_URLS[@]}"; do
             URL="${FILE_URLS[$FILE]}"
@@ -64,6 +64,7 @@ jobs:
             else
               echo "- \`$FILE\`: ❌ 다운로드 실패 (시뮬레이션 처리됨)" >> backup-report.md
               echo "[simulated content]" > /opt/backup/uploads/$FILE
+              echo "⚠️ 404 오류 발생: $URL" >> backup-report.md
             fi
           done
 
@@ -71,25 +72,33 @@ jobs:
 
       - name: Simulate Financial Transaction Backups and Ledger
         run: |
-          echo -e "\n## 💳 금융 거래 백업 시뮬레이션" >> backup-report.md
+          echo -e "\n## 💳 금융 거래 백업 시뮬레이션 및 원장" >> backup-report.md
           mkdir -p /opt/backup/transactions /opt/backup/ledger
-
-          echo "[checkcard transaction data]" > /opt/backup/transactions/checkcard.log
-          echo "[creditcard transaction data]" > /opt/backup/transactions/creditcard.log
-          echo "[fx deal log]" > /opt/backup/transactions/fx-trade.log
-          echo "[exchange rate bulletin]" > /opt/backup/transactions/exchange-rate.log
 
           LEDGER=/opt/backup/ledger/transaction-ledger.csv
           echo "고객ID,고객명,거래종류,금액,통화,시간" > $LEDGER
-          echo "CUST001,홍길동,체크카드,125000,KRW,$(date '+%Y-%m-%d %H:%M:%S')" >> $LEDGER
-          echo "CUST002,이순신,신용카드,235000,KRW,$(date '+%Y-%m-%d %H:%M:%S')" >> $LEDGER
-          echo "CUST003,김유신,FX거래,300.50,USD,$(date '+%Y-%m-%d %H:%M:%S')" >> $LEDGER
-          echo "CUST004,장보고,환율고시,1342.20,KRW/USD,$(date '+%Y-%m-%d %H:%M:%S')" >> $LEDGER
 
-          for FILE in checkcard.log creditcard.log fx-trade.log exchange-rate.log transaction-ledger.csv; do
-            echo "- \`$FILE\`: ✅ 생성됨" >> backup-report.md
+          for i in {1..10}; do
+            ID="CUST$(printf '%03d' $i)"
+            NAME="고객_$i"
+            TYPE=$(shuf -n 1 -e 체크카드 신용카드 FX거래 환율고시)
+            AMOUNT=$(awk -v min=10000 -v max=500000 'BEGIN{srand(); print int(min+rand()*(max-min+1))}')
+            CURRENCY=$(shuf -n 1 -e KRW USD EUR KRW/USD)
+            TIME=$(date '+%Y-%m-%d %H:%M:%S')
+            echo "$ID,$NAME,$TYPE,$AMOUNT,$CURRENCY,$TIME" >> $LEDGER
           done
-          echo "✅ 금융 거래 백업 및 원장 생성 완료" >> backup-report.md
+
+          cp $LEDGER /opt/backup/transactions/transaction-ledger.csv
+          echo "✅ 10건의 무작위 거래 원장 생성 완료" >> backup-report.md
+
+          TOTAL=$(awk -F',' 'NR>1 {sum+=$4} END {print sum}' $LEDGER)
+          COUNT=$(cat $LEDGER | wc -l)
+          AVG=$(awk -F',' 'NR>1 {sum+=$4; n++} END {if(n>0) printf "%.2f", sum/n; else print 0}' $LEDGER)
+
+          echo -e "\n### 📊 거래 통계 요약" >> backup-report.md
+          echo "- 총 거래 수: $((COUNT - 1)) 건" >> backup-report.md
+          echo "- 총 거래 금액: ₩$TOTAL" >> backup-report.md
+          echo "- 평균 거래 금액: ₩$AVG" >> backup-report.md
 
       - name: Upload Assets to GitHub Release (if GH_TOKEN and tag exist)
         if: github.ref == 'refs/heads/main'
