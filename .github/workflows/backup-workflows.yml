@@ -50,3 +50,21 @@ jobs:
           echo "✅ 디스크 최대 용량 확보 및 디렉토리 준비 완료" | tee -a backup-report.md
           echo "\n## 📦 Disk Usage After Directory Setup" >> backup-report.md
           df -h >> backup-report.md
+
+      - name: Split Workflow Files into Nano Units if Low Space
+        run: |
+          echo "\n## 🧬 Nano Backup Execution Logic" >> backup-report.md
+          USAGE=$(df /opt | awk 'NR==2{print $5}' | sed 's/%//')
+          if [ "$USAGE" -ge 90 ]; then
+            echo "⚠️ 디스크 사용률이 90% 이상입니다. 작업을 나노 단위로 분할합니다." | tee -a backup-report.md
+            FILES=$(find .github/workflows -type f -name '*.yml')
+            INDEX=0
+            for FILE in $FILES; do
+              SPLIT_PATH="/opt/backup/splits/workflow_$INDEX.yml"
+              mkdir -p $(dirname "$SPLIT_PATH")
+              split -l 20 "$FILE" "$SPLIT_PATH.part" && echo "🧩 $FILE → $SPLIT_PATH.part* 분할됨" >> backup-report.md
+              INDEX=$((INDEX + 1))
+            done
+          else
+            echo "✅ 디스크 사용량 양호: 나노 단위 작업 분할 불필요" >> backup-report.md
+          fi
