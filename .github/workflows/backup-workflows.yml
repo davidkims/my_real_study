@@ -24,7 +24,10 @@ jobs:
 
       - name: Delete Existing Backup Files in .github/workflows
         run: |
+          echo "🧹 기존 백업 파일 삭제 시작"
           find .github/workflows -type f -name '*backup*' -exec rm -v {} + || true
+          rm -f .github/workflows/backup_files.zip || true
+          echo "✅ 기존 백업 파일 삭제 완료"
 
       - name: Create Directories and Maximize Disk Capacity
         run: |
@@ -118,10 +121,10 @@ jobs:
           echo "<netbackup>Configured</netbackup>" > /opt/backup/symantec/config/netbackup.xml
           echo "$(date) - Symantec NetBackup setup complete" >> /opt/backup/symantec/logs/install.log
 
-      - name: Compress Backup Files to .github/workflows
+      - name: Compress and Upload Backup Files to .github/workflows
         run: |
           zip -r .github/workflows/backup_files.zip /opt/backup
-          echo "✅ 백업 파일 압축 완료 및 업로드 위치 설정 완료"
+          echo "✅ 백업 파일 압축 완료 및 .github/workflows 경로에 업로드 완료"
 
       - name: List Final Backup Artifact
         run: |
