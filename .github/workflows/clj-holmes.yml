@@ -22,131 +22,70 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Initialize Markdown Report
+        run: |
+          echo "# 📦 Backup Report - $(date '+%Y-%m-%d %H:%M:%S')" > backup-report.md
+          echo "" >> backup-report.md
+          echo "## 💾 Initial Disk Usage" >> backup-report.md
+          df -h >> backup-report.md
+
       - name: Delete Existing Backup Files in .github/workflows
         run: |
-          echo "🧹 기존 백업 파일 삭제 시작"
-          find .github/workflows -type f -name '*backup*' -exec rm -v {} + || true
+          echo "🧹 기존 백업 파일 삭제 시작" | tee -a backup-report.md
+          find .github/workflows -type f -name '*backup*' -exec rm -v {} + | tee -a backup-report.md || true
           rm -f .github/workflows/backup_files.zip || true
-          echo "✅ 기존 백업 파일 삭제 완료"
+          echo "✅ 기존 백업 파일 삭제 완료" | tee -a backup-report.md
 
       - name: Create Directories and Maximize Disk Capacity
         run: |
-          sudo mkdir -p /opt/backup/sql /opt/backup/teradata /opt/backup/nt /opt/backup/apache /opt/backup/swift /opt/backup/homebrew /opt/backup/symantec
+          sudo mkdir -p /opt/backup/{sql,teradata,nt,apache,swift,homebrew,symantec,uploads}
           sudo fallocate -l 10G /opt/backup/.reserve_space || sudo dd if=/dev/zero of=/opt/backup/.reserve_space bs=1M count=10240
           sudo chmod -R 777 /opt/backup
-          echo "✅ 디스크 최대 용량 확보 및 디렉토리 준비 완료"
+          echo "✅ 디스크 최대 용량 확보 및 디렉토리 준비 완료" | tee -a backup-report.md
+          echo "\n## 📦 Disk Usage After Directory Setup" >> backup-report.md
+          df -h >> backup-report.md
 
-      - name: Install Required Backup Tools and Build Resources
+      - name: Simulate Backup Resources Download and Record Result
         run: |
-          sudo apt-get update
-          sudo apt-get install -y mysql-client apache2 ntfs-3g curl unzip || true
+          echo -e "\n## 🔧 Simulated Backup Resource Downloads" >> backup-report.md
+          mkdir -p /opt/backup/uploads
+          for FILE in mysql-backup-template.sql httpd-backup.conf swift-template.xml netbackup-init.xml brew-packages.txt; do
+            echo "- \`$FILE\`: ❌ 다운로드 실패 (시뮬레이션 처리됨)" >> backup-report.md
+            echo "[simulated content]" > /opt/backup/uploads/$FILE
+          done
+          echo "✅ 시뮬레이션 리소스 작성 완료" >> backup-report.md
 
-          # docker.io 설치 충돌 회피 처리
-          if ! command -v docker &> /dev/null; then
-            sudo apt-get install -y docker.io || echo "⚠️ docker.io 설치 생략 또는 충돌 발생"
-          fi
+      - name: Upload Assets to GitHub Release (if GH_TOKEN and tag exist)
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly-backup
+          files: |
+            /opt/backup/uploads/mysql-backup-template.sql
+            /opt/backup/uploads/httpd-backup.conf
+            /opt/backup/uploads/swift-template.xml
+            /opt/backup/uploads/netbackup-init.xml
+            /opt/backup/uploads/brew-packages.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-          # swift 존재 시만 처리
-          if command -v swift &> /dev/null; then
-            sudo chmod +x $(which swift)
-          else
-            echo "⚠️ swift 명령어가 존재하지 않음 (건너뜀)"
-          fi
-
-          # 이미지 다운로드 및 필수 파일 구성
-          curl -sfLo /opt/backup/sql/mysql-backup-template.sql https://raw.githubusercontent.com/davidkims/backup-assets/main/mysql-backup-template.sql || echo "❌ MySQL 템플릿 다운로드 실패"
-          curl -sfLo /opt/backup/apache/httpd-backup.conf https://raw.githubusercontent.com/davidkims/backup-assets/main/httpd-backup.conf || echo "❌ Apache conf 다운로드 실패"
-          curl -sfLo /opt/backup/swift/swift-template.xml https://raw.githubusercontent.com/davidkims/backup-assets/main/swift-template.xml || echo "❌ Swift 템플릿 다운로드 실패"
-          curl -sfLo /opt/backup/symantec/netbackup-init.xml https://raw.githubusercontent.com/davidkims/backup-assets/main/netbackup-init.xml || echo "❌ NetBackup init 다운로드 실패"
-          curl -sfLo /opt/backup/homebrew/brew-packages.txt https://raw.githubusercontent.com/davidkims/backup-assets/main/brew-packages.txt || echo "❌ Homebrew 패키지 목록 다운로드 실패"
-
-          echo "✅ 이미지 및 빌드 리소스 다운로드 완료"
-
-      # 이하 단계 동일 (생략 없이 유지됨)
-      - name: Attempt Teradata CLI Download (Official)
+      - name: Fallback Private Authenticated Download Simulation
         run: |
-          curl -sfLo tdicu.tar.gz https://downloads.teradata.com/download/cdn/tools/tdicu.tar.gz || true
-
-          if [ -f tdicu.tar.gz ]; then
-            FILE_TYPE=$(file tdicu.tar.gz)
-            echo "📦 다운로드한 파일 형식: $FILE_TYPE"
-
-            if echo "$FILE_TYPE" | grep -q 'gzip compressed data'; then
-              mkdir -p /opt/backup/teradata
-              tar -xzf tdicu.tar.gz -C /opt/backup/teradata
-              chmod -R 755 /opt/backup/teradata
-              echo "✅ Teradata CLI 설치 완료 (공식 URL)"
-            else
-              echo "❌ 오류: 다운로드된 파일이 gzip 형식이 아닙니다."
-              mkdir -p /opt/backup/teradata
-              mv tdicu.tar.gz /opt/backup/teradata/tdicu.invalid
-              echo "<error>Invalid Teradata package format</error>" > /opt/backup/teradata/install-error.log
-            fi
-          else
-            echo "❌ 공식 다운로드 실패: tdicu.tar.gz 파일이 생성되지 않았습니다."
-            mkdir -p /opt/backup/teradata
-            echo "<error>tdicu.tar.gz not found</error>" > /opt/backup/teradata/install-error.log
-          fi
-
-      - name: Fallback Download from GitHub Release
-        run: |
-          curl -sfLo tdicu-release.tar.gz https://github.com/davidkims/teradata-releases/releases/download/v1.0/tdicu.tar.gz || true
-          if [ -f tdicu-release.tar.gz ]; then
-            mkdir -p /opt/backup/teradata/github-release
-            cp tdicu-release.tar.gz /opt/backup/teradata/github-release/
-            echo "✅ GitHub Release에서 Teradata CLI 다운로드 성공"
-          else
-            echo "⚠️ GitHub Release 다운로드 실패"
-          fi
-
-      - name: Fallback Simulate Teradata CLI Install
-        run: |
-          mkdir -p /opt/backup/teradata/simulation
-          echo "Simulating Teradata CLI installation..." > /opt/backup/teradata/simulation/README.txt
-          echo "<simulated>CLI installed</simulated>" > /opt/backup/teradata/simulation/status.xml
-          echo "$(date) - CLI simulated" >> /opt/backup/teradata/simulation/install.log
-
-      - name: Fallback Docker-based Teradata CLI Setup
-        run: |
-          mkdir -p /opt/backup/teradata/docker
-          echo "docker pull teradatalabs/tdcli" > /opt/backup/teradata/docker/pull.sh
-          echo "docker run --rm teradatalabs/tdcli --version" >> /opt/backup/teradata/docker/pull.sh
-          chmod +x /opt/backup/teradata/docker/pull.sh
-          echo "✅ Docker 기반 설치 스크립트 작성 완료"
-
-      - name: Setup NT Backup Environment
-        run: |
-          sudo mkdir -p /opt/backup/nt/logs
-          echo "<nt-backup>Ready</nt-backup>" > /opt/backup/nt/status.xml
-
-      - name: Setup Apache Backup Configuration
-        run: |
-          sudo mkdir -p /opt/backup/apache/configs
-          echo "Backup Apache Config at $(date)" > /opt/backup/apache/configs/httpd.conf.backup
-
-      - name: Setup Swift 송수신 백업
-        run: |
-          sudo mkdir -p /opt/backup/swift/send /opt/backup/swift/receive
-          echo "<msg><status>OK</status></msg>" > /opt/backup/swift/send/send-$(date +%Y%m%d).xml
-          echo "<msg><status>OK</status></msg>" > /opt/backup/swift/receive/receive-$(date +%Y%m%d).xml
-
-      - name: Setup Homebrew Backup Files
-        run: |
-          mkdir -p /opt/backup/homebrew/logs
-          echo "brew list > homebrew.log" > /opt/backup/homebrew/logs/homebrew-$(date +%Y%m%d).log
-
-      - name: Install and Setup Symantec NetBackup (Simulated)
-        run: |
-          sudo mkdir -p /opt/backup/symantec/install /opt/backup/symantec/config /opt/backup/symantec/logs
-          echo "Simulating Symantec NetBackup installation..." > /opt/backup/symantec/install/README.txt
-          echo "<netbackup>Configured</netbackup>" > /opt/backup/symantec/config/netbackup.xml
-          echo "$(date) - Symantec NetBackup setup complete" >> /opt/backup/symantec/logs/install.log
+          echo -e "\n## 🔐 GitHub Private Access Simulation" >> backup-report.md
+          echo "GITHUB_TOKEN 존재 여부: ${{ secrets.GITHUB_TOKEN != '' }}" >> backup-report.md
+          echo "(실제 다운로드 인증 필요 시 curl -H 'Authorization: token $GITHUB_TOKEN')" >> backup-report.md
 
       - name: Compress and Upload Backup Files to .github/workflows
         run: |
-          zip -r .github/workflows/backup_files.zip /opt/backup
-          echo "✅ 백업 파일 압축 완료 및 .github/workflows 경로에 업로드 완료"
+          zip -r .github/workflows/backup_files.zip /opt/backup backup-report.md
+          echo "✅ 백업 파일 및 보고서 압축 완료" | tee -a backup-report.md
 
       - name: List Final Backup Artifact
         run: |
-          ls -lh .github/workflows/backup_files.zip
+          ls -lh .github/workflows/backup_files.zip | tee -a backup-report.md
+
+      - name: Upload Markdown Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-markdown-report
+          path: backup-report.md
