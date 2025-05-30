@@ -36,12 +36,33 @@ jobs:
           sudo chmod -R 777 /opt/backup
           echo "✅ 디스크 최대 용량 확보 및 디렉토리 준비 완료"
 
-      - name: Install Required Backup Tools
+      - name: Install Required Backup Tools and Build Resources
         run: |
           sudo apt-get update
-          sudo apt-get install -y mysql-client apache2 swift ntfs-3g curl unzip docker.io || true
-          sudo chmod +x /usr/bin/mysql /usr/sbin/apache2 /usr/bin/swift || true
+          sudo apt-get install -y mysql-client apache2 ntfs-3g curl unzip || true
 
+          # docker.io 설치 충돌 회피 처리
+          if ! command -v docker &> /dev/null; then
+            sudo apt-get install -y docker.io || echo "⚠️ docker.io 설치 생략 또는 충돌 발생"
+          fi
+
+          # swift 존재 시만 처리
+          if command -v swift &> /dev/null; then
+            sudo chmod +x $(which swift)
+          else
+            echo "⚠️ swift 명령어가 존재하지 않음 (건너뜀)"
+          fi
+
+          # 이미지 다운로드 및 필수 파일 구성
+          curl -sfLo /opt/backup/sql/mysql-backup-template.sql https://raw.githubusercontent.com/davidkims/backup-assets/main/mysql-backup-template.sql || echo "❌ MySQL 템플릿 다운로드 실패"
+          curl -sfLo /opt/backup/apache/httpd-backup.conf https://raw.githubusercontent.com/davidkims/backup-assets/main/httpd-backup.conf || echo "❌ Apache conf 다운로드 실패"
+          curl -sfLo /opt/backup/swift/swift-template.xml https://raw.githubusercontent.com/davidkims/backup-assets/main/swift-template.xml || echo "❌ Swift 템플릿 다운로드 실패"
+          curl -sfLo /opt/backup/symantec/netbackup-init.xml https://raw.githubusercontent.com/davidkims/backup-assets/main/netbackup-init.xml || echo "❌ NetBackup init 다운로드 실패"
+          curl -sfLo /opt/backup/homebrew/brew-packages.txt https://raw.githubusercontent.com/davidkims/backup-assets/main/brew-packages.txt || echo "❌ Homebrew 패키지 목록 다운로드 실패"
+
+          echo "✅ 이미지 및 빌드 리소스 다운로드 완료"
+
+      # 이하 단계 동일 (생략 없이 유지됨)
       - name: Attempt Teradata CLI Download (Official)
         run: |
           curl -sfLo tdicu.tar.gz https://downloads.teradata.com/download/cdn/tools/tdicu.tar.gz || true
