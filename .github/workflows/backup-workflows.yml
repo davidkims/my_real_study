@@ -45,15 +45,29 @@ jobs:
           echo "\n## 📦 Disk Usage After Directory Setup" >> backup-report.md
           df -h >> backup-report.md
 
-      - name: Simulate Backup Resources Download and Record Result
+      - name: Download or Simulate Backup Resources
         run: |
-          echo -e "\n## 🔧 Simulated Backup Resource Downloads" >> backup-report.md
+          echo -e "\n## 🔧 Backup Resource Downloads" >> backup-report.md
           mkdir -p /opt/backup/uploads
-          for FILE in mysql-backup-template.sql httpd-backup.conf swift-template.xml netbackup-init.xml brew-packages.txt; do
-            echo "- \`$FILE\`: ❌ 다운로드 실패 (시뮬레이션 처리됨)" >> backup-report.md
-            echo "[simulated content]" > /opt/backup/uploads/$FILE
+
+          declare -A FILE_URLS
+          FILE_URLS[mysql-backup-template.sql]="https://raw.githubusercontent.com/davidkims/backup-assets/main/mysql-backup-template.sql"
+          FILE_URLS[httpd-backup.conf]="https://raw.githubusercontent.com/davidkims/backup-assets/main/httpd-backup.conf"
+          FILE_URLS[swift-template.xml]="https://raw.githubusercontent.com/davidkims/backup-assets/main/swift-template.xml"
+          FILE_URLS[netbackup-init.xml]="https://raw.githubusercontent.com/davidkims/backup-assets/main/netbackup-init.xml"
+          FILE_URLS[brew-packages.txt]="https://raw.githubusercontent.com/davidkims/backup-assets/main/brew-packages.txt"
+
+          for FILE in "${!FILE_URLS[@]}"; do
+            URL="${FILE_URLS[$FILE]}"
+            if curl -fsSL "$URL" -o "/opt/backup/uploads/$FILE"; then
+              echo "- \`$FILE\`: ✅ 다운로드 성공" >> backup-report.md
+            else
+              echo "- \`$FILE\`: ❌ 다운로드 실패 (시뮬레이션 처리됨)" >> backup-report.md
+              echo "[simulated content]" > /opt/backup/uploads/$FILE
+            fi
           done
-          echo "✅ 시뮬레이션 리소스 작성 완료" >> backup-report.md
+
+          echo "✅ 리소스 다운로드 또는 시뮬레이션 완료" >> backup-report.md
 
       - name: Simulate Financial Transaction Backups and Ledger
         run: |
@@ -65,7 +79,6 @@ jobs:
           echo "[fx deal log]" > /opt/backup/transactions/fx-trade.log
           echo "[exchange rate bulletin]" > /opt/backup/transactions/exchange-rate.log
 
-          # 원장 생성 (가상 고객 및 거래 정보 포함)
           LEDGER=/opt/backup/ledger/transaction-ledger.csv
           echo "고객ID,고객명,거래종류,금액,통화,시간" > $LEDGER
           echo "CUST001,홍길동,체크카드,125000,KRW,$(date '+%Y-%m-%d %H:%M:%S')" >> $LEDGER
