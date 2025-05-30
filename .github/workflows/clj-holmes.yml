@@ -1,0 +1,84 @@
+name: Full Backup and Preparation Workflow
+
+on:
+  schedule:
+    - cron: '0 21 * * 0'
+    - cron: '10 21 * * 0'
+    - cron: '20 21 * * 0'
+    - cron: '30 21 * * 0'
+    - cron: '40 21 * * 0'
+    - cron: '50 21 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  pages: write
+
+jobs:
+  cleanup-and-prepare:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Delete Existing Backup Files in .github/workflows
+        run: |
+          find .github/workflows -type f -name '*backup*' -exec rm -v {} + || true
+
+      - name: Create Directories and Maximize Disk Capacity
+        run: |
+          sudo mkdir -p /opt/backup/sql /opt/backup/teradata /opt/backup/nt /opt/backup/apache /opt/backup/swift /opt/backup/homebrew /opt/backup/symantec
+          sudo fallocate -l 10G /opt/backup/.reserve_space || sudo dd if=/dev/zero of=/opt/backup/.reserve_space bs=1M count=10240
+          sudo chmod -R 777 /opt/backup
+          echo "✅ 디스크 최대 용량 확보 및 디렉토리 준비 완료"
+
+      - name: Install Required Backup Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mysql-client apache2 swift ntfs-3g curl unzip || true
+          sudo chmod +x /usr/bin/mysql /usr/sbin/apache2 /usr/bin/swift || true
+
+      - name: Install Teradata CLI
+        run: |
+          curl -O https://downloads.teradata.com/download/cdn/tools/tdicu.tar.gz
+          tar -xzf tdicu.tar.gz -C /opt/backup/teradata
+          chmod -R 755 /opt/backup/teradata
+
+      - name: Setup NT Backup Environment
+        run: |
+          sudo mkdir -p /opt/backup/nt/logs
+          echo "<nt-backup>Ready</nt-backup>" > /opt/backup/nt/status.xml
+
+      - name: Setup Apache Backup Configuration
+        run: |
+          sudo mkdir -p /opt/backup/apache/configs
+          echo "Backup Apache Config at $(date)" > /opt/backup/apache/configs/httpd.conf.backup
+
+      - name: Setup Swift 송수신 백업
+        run: |
+          sudo mkdir -p /opt/backup/swift/send /opt/backup/swift/receive
+          echo "<msg><status>OK</status></msg>" > /opt/backup/swift/send/send-$(date +%Y%m%d).xml
+          echo "<msg><status>OK</status></msg>" > /opt/backup/swift/receive/receive-$(date +%Y%m%d).xml
+
+      - name: Setup Homebrew Backup Files
+        run: |
+          mkdir -p /opt/backup/homebrew/logs
+          echo "brew list > homebrew.log" > /opt/backup/homebrew/logs/homebrew-$(date +%Y%m%d).log
+
+      - name: Install and Setup Symantec NetBackup (Simulated)
+        run: |
+          sudo mkdir -p /opt/backup/symantec/install /opt/backup/symantec/config /opt/backup/symantec/logs
+          echo "Simulating Symantec NetBackup installation..." > /opt/backup/symantec/install/README.txt
+          echo "<netbackup>Configured</netbackup>" > /opt/backup/symantec/config/netbackup.xml
+          echo "$(date) - Symantec NetBackup setup complete" >> /opt/backup/symantec/logs/install.log
+
+      - name: Compress Backup Files to .github/workflows
+        run: |
+          zip -r .github/workflows/backup_files.zip /opt/backup
+          echo "✅ 백업 파일 압축 완료 및 업로드 위치 설정 완료"
+
+      - name: List Final Backup Artifact
+        run: |
+          ls -lh .github/workflows/backup_files.zip
