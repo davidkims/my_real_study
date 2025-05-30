@@ -1,110 +1,52 @@
-name: Full System Automation with Backup, Test, and Reporting
+name: Global Card Transaction Backup (Encrypted UTC/KST)
 
 on:
-  push:
-    branches: [main]
-  pull_request:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '*/5 * * * *'  # 5분마다 실행
   workflow_dispatch:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 jobs:
-  full-backup:
+  card-backup:
     runs-on: ubuntu-latest
+
     steps:
       - name: 📦 Checkout
         uses: actions/checkout@v4
 
-      - name: 🕒 Set timestamp (KST)
-        id: vars
+      - name: 🕒 Set UTC + KST timestamps
+        id: time
         run: |
-          export TZ=Asia/Seoul
-          echo "timestamp=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
-          echo "date_fmt=$(date '+%Y-%m-%d %H:%M:%S (KST)')" >> $GITHUB_OUTPUT
+          echo "utc_time=$(date -u +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+          echo "kst_time=$(TZ=Asia/Seoul date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
 
-      - name: 🧰 Install dependencies
+      - name: 📁 Create backup directories
+        run: mkdir -p checkcard_backups
+
+      - name: 💳 Simulate Card Transactions and Encrypt
         run: |
-          sudo apt-get update
-          sudo apt-get install -y apache2 unzip curl default-jdk libaio-dev gnupg
+          # 체크카드 거래 백업
+          echo "-- 체크카드 거래 내역" > checkcard.sql
+          echo "CREATE TABLE checkcard_transactions (id INT, customer_id INT, amount DECIMAL, masked_card TEXT);" >> checkcard.sql
+          echo "INSERT INTO checkcard_transactions VALUES (1, 1001, 15000.00, '****-****-****-1234');" >> checkcard.sql
 
-      - name: 📁 Prepare backup directories
-        run: |
-          mkdir -p apache_backups nt-backup/bin db_backups oracle_backups backups reports \
-                   eai_backups edi_logs springboot springboot_backups maven_backups \
-                   public/reports checkcard_backups teradata_backups
+          # 신용카드 거래 백업
+          echo "-- 신용카드 거래 내역" > creditcard.sql
+          echo "CREATE TABLE creditcard_transactions (id INT, customer_id INT, amount DECIMAL, masked_card TEXT);" >> creditcard.sql
+          echo "INSERT INTO creditcard_transactions VALUES (2, 2002, 32000.00, '****-****-****-5678');" >> creditcard.sql
 
-      - name: ☕ Setup Spring Boot JAR
-        run: |
-          curl -L https://repo.spring.io/release/org/springframework/boot/spring-boot-samples/2.7.3/spring-boot-samples-2.7.3.jar \
-            -o springboot/app.jar
-          echo "java -jar $(pwd)/springboot/app.jar" > springboot/run.sh
-          chmod +x springboot/run.sh
-
-      - name: ⚙️ Generate .env and application.yml
-        run: |
-          echo "APP_ENV=production" > springboot/.env
-          mkdir -p springboot/src/main/resources
-          printf "spring:\n  application:\n    name: SampleApp\n  server:\n    port: 8080\n" > springboot/src/main/resources/application.yml
-
-      - name: 🧱 Install Maven
-        run: |
-          curl -LO https://downloads.apache.org/maven/maven-3/3.9.6/binaries/apache-maven-3.9.6-bin.zip
-          unzip apache-maven-3.9.6-bin.zip -d ./maven_backups
-          mv maven_backups/apache-maven-3.9.6 maven_backups/maven-${{ steps.vars.outputs.timestamp }}
-          echo "$(pwd)/maven_backups/maven-${{ steps.vars.outputs.timestamp }}/bin" >> $GITHUB_PATH
-
-      - name: ✅ Test Maven
-        run: mvn --version
-
-      - name: 🚀 Run Spring Boot for test
-        run: |
-          nohup java -jar springboot/app.jar > springboot/run.log 2>&1 &
-          sleep 10
-          curl -s http://localhost:8080 || echo "No default route"
-          pkill -f 'springboot/app.jar' || true
-
-      - name: 💾 Backup Artifacts
-        run: |
-          cp springboot/app.jar springboot_backups/app-${{ steps.vars.outputs.timestamp }}.jar
-          zip -r backups/workflows-backup-${{ steps.vars.outputs.timestamp }}.zip .github/workflows
-
-      - name: 🔐 Simulate and Encrypt Logistics Customer DB
-        run: |
-          echo "-- 물류 고객 가상 백업 (주민번호 마스킹 적용)" > db_temp.sql
-          echo "CREATE TABLE customers (id INT, name TEXT, phone TEXT, ssn TEXT);" >> db_temp.sql
-          echo "INSERT INTO customers VALUES (1, '홍길동', '010-1234-5678', '900101-*******');" >> db_temp.sql
-          gpg --batch --yes --passphrase "secret" -c db_temp.sql
-          mv db_temp.sql.gpg db_backups/db-backup-${{ steps.vars.outputs.timestamp }}.sql.gpg
-
-      - name: 🟠 Oracle DB Backup (encrypted)
-        run: |
-          echo "-- Oracle DB Export (simulated)" > oracle.dmp
-          echo "EXPORT_DATE=${{ steps.vars.outputs.date_fmt }}" >> oracle.dmp
-          gpg --batch --yes --passphrase "secret" -c oracle.dmp
-          mv oracle.dmp.gpg oracle_backups/oracle-backup-${{ steps.vars.outputs.timestamp }}.dmp.gpg
-
-      - name: 🟢 Checkcard DB Backup (encrypted)
-        run: |
-          echo "-- 체크카드 거래 백업" > checkcard.sql
-          echo "CREATE TABLE transactions (id INT, customer_id INT, amount DECIMAL, masked_card TEXT);" >> checkcard.sql
-          echo "INSERT INTO transactions VALUES (1, 1001, 15000.00, '****-****-****-1234');" >> checkcard.sql
+          # GPG 암호화
           gpg --batch --yes --passphrase "secret" -c checkcard.sql
-          mv checkcard.sql.gpg checkcard_backups/checkcard-${{ steps.vars.outputs.timestamp }}.sql.gpg
+          gpg --batch --yes --passphrase "secret" -c creditcard.sql
 
-      - name: 🔵 Teradata Backup (encrypted)
-        run: |
-          echo "-- Teradata Backup" > teradata.dmp
-          echo "EXPORT_DATE=${{ steps.vars.outputs.date_fmt }}" >> teradata.dmp
-          gpg --batch --yes --passphrase "secret" -c teradata.dmp
-          mv teradata.dmp.gpg teradata_backups/teradata-${{ steps.vars.outputs.timestamp }}.dmp.gpg
+          # 파일 이름에 UTC + KST 타임스탬프 포함
+          mv checkcard.sql.gpg checkcard_backups/checkcard-${{ steps.time.outputs.kst_time }}-UTC${{ steps.time.outputs.utc_time }}.sql.gpg
+          mv creditcard.sql.gpg checkcard_backups/creditcard-${{ steps.time.outputs.kst_time }}-UTC${{ steps.time.outputs.utc_time }}.sql.gpg
 
-      - name: 🔄 Simulate EAI + EDI logs
-        run: |
-          echo "<msg><status>OK</status></msg>" > eai_backups/send-${{ steps.vars.outputs.timestamp }}.xml
-          echo "<msg><status>OK</status></msg>" > eai_backups/receive-${{ steps.vars.outputs.timestamp }}.xml
-          echo "$(date) 송신 완료" >> edi_logs/send-${{ steps.vars.outputs.timestamp }}.log
+          # 원본 제거
+          rm -f checkcard.sql creditcard.sql
+
+      - name: ✅ Show backup files
+        run: ls -al checkcard_backups
