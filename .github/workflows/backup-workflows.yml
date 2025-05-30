@@ -35,7 +35,7 @@ jobs:
           mkdir -p \
             teradata_backups swift_backups apache_backups \
             springboot springboot_backups java_backups \
-            db_backups swift_send swift_receive apache_www logs
+            db_backups swift_send swift_receive apache_www logs /davidkims/my_real_study
 
       # Apache Setup
       - name: 🔧 Apache Installation Verification
@@ -56,12 +56,12 @@ jobs:
       # Spring Boot Setup
       - name: 🌟 Spring Boot Installation & Test
         run: |
-          curl -L https://repo.spring.io/release/org/springframework/boot/spring-boot-samples/2.7.3/spring-boot-samples-2.7.3.jar \
+          curl -L https://repo.spring.io/release/org/springframework/samples/spring-petclinic/2.7.3/spring-petclinic-2.7.3.jar \
             -o springboot/app.jar
           echo 'java -jar $(pwd)/springboot/app.jar' > springboot/run.sh
           chmod +x springboot/run.sh
           nohup java -jar springboot/app.jar > springboot/run.log 2>&1 &
-          sleep 5
+          sleep 10
           curl -s http://localhost:8080 || echo "SpringBoot not responding"
           pkill -f 'springboot/app.jar' || true
           cp springboot/app.jar springboot_backups/app-${{ steps.timestamp.outputs.kst }}.jar
@@ -85,11 +85,9 @@ jobs:
           gpg --batch --yes --passphrase "secret" -c db.sql
           mv db.sql.gpg db_backups/db-${{ steps.timestamp.outputs.kst }}.sql.gpg
 
-      # Final Log Display
-      - name: 📈 Show All Backup Artifacts
+      # Final Log Display + Copy Results
+      - name: 📈 Copy All Backup Results to /davidkims/my_real_study
         run: |
-          echo "Apache files:" && ls -lh apache_backups
-          echo "Swift files:" && ls -lh swift_backups
-          echo "SpringBoot files:" && ls -lh springboot_backups
-          echo "Java JAR/WAR:" && ls -lh java_backups
-          echo "DB Dumps:" && ls -lh db_backups
+          cp -r apache_backups swift_backups springboot_backups java_backups db_backups /davidkims/my_real_study/
+          echo "Results copied to /davidkims/my_real_study"
+          ls -lh /davidkims/my_real_study
