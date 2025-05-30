@@ -42,19 +42,27 @@ jobs:
 
       - name: Install Teradata CLI with format check
         run: |
-          curl -sfLo tdicu.tar.gz https://downloads.teradata.com/download/cdn/tools/tdicu.tar.gz
+          curl -sfLo tdicu.tar.gz https://downloads.teradata.com/download/cdn/tools/tdicu.tar.gz || true
 
-          FILE_TYPE=$(file tdicu.tar.gz)
-          echo "📦 다운로드한 파일 형식: $FILE_TYPE"
+          if [ -f tdicu.tar.gz ]; then
+            FILE_TYPE=$(file tdicu.tar.gz)
+            echo "📦 다운로드한 파일 형식: $FILE_TYPE"
 
-          if echo "$FILE_TYPE" | grep -q 'gzip compressed data'; then
-            tar -xzf tdicu.tar.gz -C /opt/backup/teradata
-            chmod -R 755 /opt/backup/teradata
-            echo "✅ Teradata CLI 설치 완료"
+            if echo "$FILE_TYPE" | grep -q 'gzip compressed data'; then
+              mkdir -p /opt/backup/teradata
+              tar -xzf tdicu.tar.gz -C /opt/backup/teradata
+              chmod -R 755 /opt/backup/teradata
+              echo "✅ Teradata CLI 설치 완료"
+            else
+              echo "❌ 오류: 다운로드된 파일이 gzip 형식이 아닙니다."
+              mkdir -p /opt/backup/teradata
+              mv tdicu.tar.gz /opt/backup/teradata/tdicu.invalid
+              echo "<error>Invalid Teradata package format</error>" > /opt/backup/teradata/install-error.log
+            fi
           else
-            echo "❌ 오류: 다운로드된 파일이 gzip 형식이 아닙니다."
-            mv tdicu.tar.gz /opt/backup/teradata/tdicu.invalid
-            echo "<error>Invalid Teradata package format</error>" > /opt/backup/teradata/install-error.log
+            echo "❌ 다운로드 실패: tdicu.tar.gz 파일이 생성되지 않았습니다."
+            mkdir -p /opt/backup/teradata
+            echo "<error>tdicu.tar.gz not found</error>" > /opt/backup/teradata/install-error.log
           fi
 
       - name: Setup NT Backup Environment
