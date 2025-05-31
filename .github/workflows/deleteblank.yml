@@ -1,32 +1,31 @@
-name: 🔥 Cleanup my_real_study Repository
+name: 🧨 Full Repository Cleanup
 
 on:
-  workflow_dispatch: # 수동 실행
-  schedule:
-    - cron: '30 23 * * 0' # 매주 일요일 23:30에 자동 실행 (선택 사항)
+  workflow_dispatch: # 수동 실행만 허용
 
 permissions:
   contents: write
 
 jobs:
-  delete-all-files:
-    name: Delete Everything in my_real_study
+  nuke:
     runs-on: ubuntu-latest
 
     steps:
-      - name: ⬇️ Checkout Repository
+      - name: 📦 Checkout Repository (Full Depth)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 전체 기록 유지
 
-      - name: 🧹 Delete All Files Except .git
+      - name: 🧹 Remove All Files (except .git)
         run: |
-          echo "🧨 모든 파일 및 디렉토리를 삭제합니다..."
-          find . -mindepth 1 -not -name '.git' -exec rm -rf {} +
+          echo "⚠️ 전체 파일을 삭제합니다 (.git 제외)..."
+          find . -mindepth 1 -not -name '.git' -not -name '.' -exec rm -rf {} +
           echo "✅ 삭제 완료"
 
-      - name: 🔁 Commit and Push Changes
+      - name: ✅ Commit & Push Deleted State
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "🗑️ 전체 파일 자동 삭제"
+          git commit -m "🗑️ 전체 파일 및 워크플로우 삭제 완료"
           git push
