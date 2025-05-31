@@ -1,0 +1,66 @@
+name: 🛠️ Maximize Disk Space & Setup Directories
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  maximize-and-setup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🧹 Clean unnecessary packages to free up space
+        run: |
+          echo "🧼 Removing unneeded packages..."
+          sudo apt-get clean
+          sudo apt-get autoremove -y
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
+          df -h
+
+      - name: 📦 Allocate disk reservation file (100GB fallback)
+        run: |
+          echo "📦 디스크 예약 공간 확보 중..."
+          if sudo fallocate -l 100G /opt/.reserved_space; then
+            echo "✅ fallocate 사용 성공"
+          else
+            echo "⚠️ fallocate 실패: dd 방식으로 대체합니다"
+            sudo dd if=/dev/zero of=/opt/.reserved_space bs=1M count=102400 || echo "❌ dd 실패: 디스크 용량 부족으로 예약 공간 확보 실패"
+          fi
+          sudo chmod 777 /opt/.reserved_space
+          df -h
+
+      - name: 🗂️ Create essential workflow directories
+        run: |
+          mkdir -p .github/workflows/lint
+          mkdir -p .github/workflows/security
+          mkdir -p .github/workflows/deploy
+          mkdir -p .github/workflows/ci
+          mkdir -p .github/workflows/utils
+          echo "✅ 워크플로우 디렉토리 생성 완료"
+
+      - name: 📁 Create additional required directories with full access
+        run: |
+          sudo mkdir -p /opt/backup/{sql,teradata,nt,apache,swift,homebrew,symantec,uploads,transactions,ledger}
+          sudo chmod -R 777 /opt/backup
+          echo "✅ /opt/backup 하위 디렉토리 전체 생성 완료"
+          df -h > disk-usage.log
+
+      - name: 📝 Save disk usage report
+        run: |
+          mkdir -p reports
+          cp disk-usage.log reports/
+          echo "✅ 디스크 용량 상태 보고 저장 완료"
+
+      - name: 💾 Commit setup to repository
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows reports/
+          git commit -m "🛠️ 디스크 최대 용량 확보 및 디렉토리/워크플로우 초기 설정"
+          git push
+        continue-on-error: true
