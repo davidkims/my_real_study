@@ -1,7 +1,7 @@
 name: 🧨 Full Repository Cleanup
 
 on:
-  workflow_dispatch: # 수동 실행만 허용
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -11,18 +11,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 📦 Checkout Repository (Full Depth)
+      - name: 📥 Checkout Repository (with full history)
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # 전체 기록 유지
+          fetch-depth: 0 # 전체 git 기록과 .git 디렉토리 포함
 
-      - name: 🧹 Remove All Files (except .git)
+      - name: 🧹 Remove All Files Except .git
         run: |
-          echo "⚠️ 전체 파일을 삭제합니다 (.git 제외)..."
-          find . -mindepth 1 -not -name '.git' -not -name '.' -exec rm -rf {} +
+          echo "🧨 모든 파일 삭제 중 (.git 제외)..."
+          shopt -s extglob
+          rm -rf !(.git)
           echo "✅ 삭제 완료"
 
-      - name: ✅ Commit & Push Deleted State
+      - name: 🚀 Commit & Push Deleted State
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
